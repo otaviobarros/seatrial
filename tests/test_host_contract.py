@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import types
 import unittest
 from unittest import mock
 
@@ -125,6 +126,18 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                     self.assertEqual(env['CLAUDE_CONFIG_DIR'], str(Path(tmp) / 'claude-config'))
                     adapter.release(t, threading.Lock())
                     self.assertFalse((Path(tmp) / 'claude-config').exists())
+
+    def test_skipped_cd_surfaces_an_isolation_warning(self):
+        from seatrial import report, runner
+        adapter = hosts.get('codex')
+        with tempfile.TemporaryDirectory() as tmp:
+            t = trial(Path(tmp))
+            shutil.copy(SAMPLES / 'codex/skipped-cd.jsonl', t.trace)
+            found = runner.isolation_findings(adapter, t, adapter.collect(t))
+        self.assertEqual(found, {'unknown_skills': ['demo/SKILL.md']})
+        record = {'status': 'completed', 'wall_s': 1, 'assertions': [], **found}
+        case = types.SimpleNamespace(assertions={'primary': 'rate'})
+        self.assertEqual(report.summarize_arm(case, [record])['isolation_warnings'], 1)
 
     def test_claude_reports_skills_from_outside_the_plugin(self):
         adapter = hosts.get('claude')

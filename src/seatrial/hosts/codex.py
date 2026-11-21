@@ -123,7 +123,7 @@ class Codex(HostAdapter):
 
 
 SKILL_FILE = re.compile(r'[\w./~-]*SKILL\.md')
-SEPARATOR = re.compile(r'[;&|()]+')
+SEPARATOR = re.compile(r'[;&|()\n]+')
 SHELLS = {'sh', 'bash', 'zsh', 'dash'}
 
 
@@ -142,30 +142,40 @@ def _script(command):
 def _skill_reads(command, cwd='.'):
     """SKILL.md paths a command reads, each with the directory it was read from.
 
-    Quoted paths keep their spaces. A `cd` in the script moves the directory; a `cd`
-    whose target the trace cannot show makes the directory None."""
+    Quoted paths keep their spaces. A literal `cd` holds only for commands joined to it
+    by `&&`: after any other separator the `cd` may have failed or been skipped, so the
+    directory becomes None. A `cd` whose target the trace cannot show does the same."""
     script = _script(command)
     if script is None:  # Unbalanced quotes: keep the paths, but not where they were read.
         return [{'path': p, 'cwd': None} for p in SKILL_FILE.findall(str(command))]
-    lexer = shlex.shlex(script, posix=True, punctuation_chars=';&|()')
+    lexer = shlex.shlex(script, posix=True, punctuation_chars=';&|()\n')
+    lexer.whitespace = ' \t\r'
     lexer.whitespace_split = True
     try:
         tokens = list(lexer)
     except ValueError:
         return [{'path': p, 'cwd': None} for p in SKILL_FILE.findall(script)]
-    reads, stack, start = [], [], True
+    reads, stack, start, moved, joined = [], [], True, False, ''
     for index, token in enumerate(tokens):
         if SEPARATOR.fullmatch(token):
-            if '(' in token:
-                stack.append(cwd)
-            if ')' in token and stack:
-                cwd = stack.pop()
+            for char in token:
+                if char == '(':
+                    stack.append((cwd, moved))
+                    moved = False
+                elif char == ')' and stack:
+                    cwd, moved = stack.pop()
+            joined = token.replace('(', '').replace(')', '')
+            if joined and joined != '&&' and moved:  # The cd may not have run.
+                cwd, moved = None, False
             start = True
             continue
         if start and token in ('cd', 'pushd'):
             target = tokens[index + 1] if index + 1 < len(tokens) else None
             literal = target and not SEPARATOR.fullmatch(target) and not re.search(r'[$`*?]|^[~-]', target)
-            cwd = (str(Path(cwd) / target) if cwd is not None else None) if literal else None
+            if literal and cwd is not None and joined not in ('||', '|'):
+                cwd, moved = str(Path(cwd) / target), True
+            else:
+                cwd = None
         elif 'SKILL.md' in token:
             path = token[:token.rindex('SKILL.md') + len('SKILL.md')].rsplit('=', 1)[-1]
             reads.append({'path': path, 'cwd': cwd})

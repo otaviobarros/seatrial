@@ -203,6 +203,29 @@ class RootPluginMountTests(unittest.TestCase):
         self.assertTrue((target / 'skills/demo/SKILL.md').is_file())
 
 
+class SiblingCasesMountTests(ProjectCase, unittest.TestCase):
+    """plugin/ beside evals/cases: the cases are outside the skills folder."""
+
+    def test_plugin_links_to_sibling_cases_never_reach_the_mount(self):
+        case = self.root / 'evals/cases/demo-001'
+        case.mkdir(parents=True)
+        (case / 'case.py').write_text('# grader\n')
+        demo = self.cfg.skills / 'skills/demo'
+        (demo / 'fixtures').symlink_to('../../../evals/cases')
+        (demo / 'grader.py').symlink_to(case / 'case.py')
+        (demo / 'all-cases').symlink_to(self.root / 'evals/cases')
+        git(self.root, 'add', '-A')
+        git(self.root, 'commit', '--quiet', '-m', 'feat: link the cases')
+        for revision in (WORKTREE, 'HEAD'):
+            with self.subTest(revision=revision):
+                target = Path(self._tmp.name) / f'mount-{revision}'
+                mount(revision, target)
+                self.assertTrue((target / 'skills/demo/SKILL.md').is_file())
+                self.assertEqual(graders(target), [])
+                for name in ('fixtures', 'grader.py', 'all-cases'):
+                    self.assertFalse(os.path.lexists(target / 'skills/demo' / name), name)
+
+
 class SkillsLayoutMountTests(ProjectCase, unittest.TestCase):
     layout = 'skills'
 

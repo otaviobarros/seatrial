@@ -103,9 +103,7 @@ def evaluation_inputs(cfg):
     configuration, and run state next to the skill under evaluation."""
     skills = cfg.skills.resolve()
     found = []
-    for path in [cfg.cases, cfg.state, cfg.file, *cfg.identity_files, *cfg.python_path]:
-        if path is None:
-            continue
+    for path in _input_paths(cfg):
         try:
             rel = Path(path).resolve().relative_to(skills)
         except ValueError:
@@ -115,17 +113,35 @@ def evaluation_inputs(cfg):
     return found
 
 
+def _input_paths(cfg):
+    return [p for p in [cfg.cases, cfg.state, cfg.file, *cfg.identity_files, *cfg.python_path] if p is not None]
+
+
+def protected_paths(cfg):
+    """Real paths of every evaluation input, inside the skills folder or beside it.
+
+    A link in the plugin to any of them is an alias; folders that hold the plugin
+    itself, such as a python_path of the repository root, are not protected."""
+    skills = Path(os.path.realpath(cfg.skills))
+    found = []
+    for path in _input_paths(cfg):
+        real = Path(os.path.realpath(path))
+        if real != skills and real not in skills.parents:
+            found.append(real)
+    return found
+
+
 def _overlaps(path, roots):
     """True when path, with links resolved, is, contains, or lies inside one of the real roots."""
     real = Path(os.path.realpath(path))
     return any(real == r or r in real.parents or real in r.parents for r in roots)
 
 
-def _mount_filter(root, excluded):
+def _mount_filter(root, excluded, protected):
     """copytree ignore function: skip caches, Git metadata, evaluation inputs, and links to them."""
     patterns = shutil.ignore_patterns(*IGNORE)
     root, excluded = Path(root), set(excluded)
-    real = [Path(os.path.realpath(root / rel)) for rel in excluded]
+    real = [Path(os.path.realpath(root / rel)) for rel in excluded] + list(protected)
 
     def ignore(directory, names):
         skipped = set(patterns(directory, names))
@@ -142,11 +158,12 @@ def _mount_filter(root, excluded):
     return ignore
 
 
-def _remove_excluded(target, excluded, source_root):
+def _remove_excluded(target, excluded, protected, source):
     """Delete evaluation inputs from an extracted mount without following any link.
 
     A link on the way to an input is removed, never traversed; a link elsewhere in the
-    mount that points at an input, in the mount or in the source tree, is removed too."""
+    mount that points at an input, read from the mount or from its place in the source
+    tree, is removed too."""
     for rel in excluded:
         path = target
         for part in rel.parts:
@@ -158,12 +175,12 @@ def _remove_excluded(target, excluded, source_root):
                 break
         else:
             shutil.rmtree(path) if path.is_dir() else path.unlink()
-    roots = [Path(os.path.realpath(source_root / rel)) for rel in excluded]
-    roots += [Path(os.path.realpath(target)) / rel for rel in excluded]
+    roots = list(protected) + [Path(os.path.realpath(target)) / rel for rel in excluded]
     for directory, dirs, files in os.walk(target):
         for name in dirs + files:
             entry = Path(directory) / name
-            if entry.is_symlink() and _overlaps(entry, roots):
+            if entry.is_symlink() and (_overlaps(entry, roots) or _overlaps(
+                    Path(source) / entry.parent.relative_to(target) / os.readlink(entry), roots)):
                 entry.unlink()
                 if name in dirs:
                     dirs.remove(name)
@@ -177,9 +194,9 @@ def mount(revision, dest):
     cfg = config.current()
     identity = resolve(revision)
     target = dest / 'skills' if cfg.layout == 'skills' else dest
-    excluded = evaluation_inputs(cfg)
+    excluded, protected = evaluation_inputs(cfg), protected_paths(cfg)
     if revision == WORKTREE:
-        shutil.copytree(cfg.skills, target, ignore=_mount_filter(cfg.skills, excluded))
+        shutil.copytree(cfg.skills, target, ignore=_mount_filter(cfg.skills, excluded, protected))
     else:
         top, rel = source()
         target.mkdir(parents=True)
@@ -187,7 +204,7 @@ def mount(revision, dest):
                                  check=True, capture_output=True).stdout
         depth = 0 if rel == '.' else len(Path(rel).parts)
         subprocess.run(['tar', '-x', '-C', str(target), f'--strip-components={depth}'], input=archive, check=True)
-        _remove_excluded(target, excluded, cfg.skills)
+        _remove_excluded(target, excluded, protected, cfg.skills)
     for rel in excluded:  # An emptied parent such as `evals/` still names the evaluation.
         for parent in (target / rel).parents:
             if parent == target or not parent.is_relative_to(target) or parent.is_symlink():

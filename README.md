@@ -30,14 +30,25 @@ takes the skill out on a fixed course, many times, and records what happened.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.svg">
-  <img alt="One trial: build a case, mount the skill revision, run the agent CLI, collect evidence, grade it; repeat n times into summary.json" src="docs/images/how-it-works-light.svg">
+  <img alt="Diagram of one trial in five steps: case, mount, agent, evidence, grade. The trial repeats n times per case, host, and revision, and the results go to summary.json." src="docs/images/how-it-works-light.svg">
 </picture>
 
-A **case** is a folder with `case.toml` and `case.py`. `build()` writes a small
-fictional project and returns the request a user would type. seatrial mounts your
-skills at one revision, runs the agent in an isolated folder, collects what it
-did, and passes that evidence to `grade()`. Repeating each trial turns one lucky
-run into a pass rate.
+Each trial runs these steps:
+
+1. **Case.** `build()` in the case's `case.py` writes a small fictional project
+   and returns the request a user would type.
+2. **Mount.** seatrial mounts your skills at one revision, a Git ref such as
+   `main` or the uncommitted `WORKTREE`, as a plugin.
+3. **Agent.** The real host CLI (`claude` or `codex`) runs the request in a
+   fresh, isolated folder.
+4. **Evidence.** seatrial records the commands, file edits, loaded skills, and
+   final message in `evidence.json`.
+5. **Grade.** `grade()` checks that evidence and the project, and returns pass or
+   fail for each assertion in `case.toml`.
+
+seatrial repeats each trial n times per case, host, and revision, and writes the
+pass rates and verdicts to `summary.json`. Repetition turns one lucky run into a
+pass rate.
 
 ## How seatrial compares
 

@@ -1,12 +1,43 @@
-# seatrial
+<!-- markdownlint-disable-next-line MD041 -->
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
+  <img alt="seatrial: sea trials for agent skills" src="docs/images/hero-light.svg" width="880">
+</picture>
+</p>
 
-seatrial runs fixed evaluation cases for agent skills on agent CLIs (hosts),
-grades each trial with deterministic code, and compares two revisions of your
-skills. It uses only the Python 3.11+ standard library, Git, and the agent CLIs
-you already have installed.
+<p align="center">
+  <a href="https://github.com/otaviobarros/seatrial/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/otaviobarros/seatrial/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-1d6fa5">
+  <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-0b7a8f">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-0b2540"></a>
+</p>
 
-Built-in hosts: Claude Code (`claude -p`) and Codex CLI (`codex exec`). Add others
-through a small adapter; see [hosts](docs/hosts.md).
+You changed a skill. Did the agent get better, or did it only feel better on the
+one prompt you tried? seatrial answers that the way a shipyard tests a boat: it
+takes the skill out on a fixed course, many times, and records what happened.
+
+- **Real agents.** Each trial runs the actual CLI, Claude Code (`claude -p`) or
+  Codex (`codex exec`), in a fresh project. Add other hosts through a small
+  [adapter](docs/hosts.md).
+- **Graded by code.** A case's `grade()` checks files, Git state, commands, and the
+  final message. No model judges the result.
+- **Two revisions, one verdict.** `compare` runs `main` against your uncommitted
+  edits and reports `improved`, `non-inferior`, `regressed`, or `inconclusive`.
+- **Nothing to install into your project.** Python 3.11+ standard library and Git.
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.svg">
+  <img alt="One trial: build a case, mount the skill revision, run the agent CLI, collect evidence, grade it; repeat n times into summary.json" src="docs/images/how-it-works-light.svg">
+</picture>
+
+A **case** is a folder with `case.toml` and `case.py`. `build()` writes a small
+fictional project and returns the request a user would type. seatrial mounts your
+skills at one revision, runs the agent in an isolated folder, collects what it
+did, and passes that evidence to `grade()`. Repeating each trial turns one lucky
+run into a pass rate.
 
 ## Install
 
@@ -108,6 +139,11 @@ and the command exits 1.
 
 ## Verdicts
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/compare-dark.svg">
+  <img alt="compare: base main passes 4 of 10 trials, head WORKTREE passes 10 of 10, verdict improved with Fisher p = 0.011" src="docs/images/compare-light.svg">
+</picture>
+
 `compare` gives each case and host one advisory verdict:
 
 | Verdict | Meaning |
@@ -122,6 +158,10 @@ primary assertion. With 3 trials, `improved` is not possible. Report a
 non-significant result as "no detected effect". The report also shows pass^k,
 median lines added, mean wall time, and host-reported cost. Use
 `--fail-on-regression` to exit 4 on any `regressed` verdict.
+
+<p align="center">
+  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="docs/images/terminal.svg" width="880">
+</p>
 
 ## Results
 
@@ -141,6 +181,9 @@ Trial directories use random names so that no path the agent sees names the
 evaluation. Private host state, including any copied login, is removed after each
 trial.
 
+<details>
+<summary>Trial statuses</summary>
+
 Only `completed` trials are graded. Other statuses are excluded from pass rates:
 
 | Status | Meaning |
@@ -152,6 +195,8 @@ Only `completed` trials are graded. Other statuses are excluded from pass rates:
 | `incomplete` | The host exited without a successful final turn |
 | `harness_error` | seatrial failed; the record holds the exception |
 | `stale` | From `regrade` only: the retained files changed after the trial |
+
+</details>
 
 `regrade` writes `records-regraded.jsonl` and `summary-regraded.json`. Copy
 retained trial files before you inspect them with tools that write.

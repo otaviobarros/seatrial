@@ -4,6 +4,8 @@
     // Prose, commands, and tables use lines longer than 80 characters.
     "MD013": false,
     // Tables mix compact cells with unpadded delimiter rows.
-    "MD060": false
+    "MD060": false,
+    // The README uses HTML for theme-aware images, centering, and a collapsed table.
+    "MD033": {"allowed_elements": ["a", "br", "details", "h1", "img", "p", "picture", "source", "summary"]}
   }
 }

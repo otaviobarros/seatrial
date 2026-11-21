@@ -1,8 +1,8 @@
 <!-- markdownlint-disable-next-line MD041 -->
 <p align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
-  <img alt="seatrial" src="docs/images/logo-light.png" width="420">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/logo-dark.png">
+  <img alt="seatrial" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/logo-light.png" width="420">
 </picture>
 </p>
 
@@ -12,7 +12,7 @@
   <a href="https://github.com/otaviobarros/seatrial/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/otaviobarros/seatrial/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-1d6fa5">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-0b7a8f">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-0b2540"></a>
+  <a href="https://github.com/otaviobarros/seatrial/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-0b2540"></a>
 </p>
 
 You changed a skill. Did the agent get better, or did it only feel better on the
@@ -21,7 +21,7 @@ takes the skill out on a fixed course, many times, and records what happened.
 
 - **Real agents.** Each trial runs the actual CLI, Claude Code (`claude -p`) or
   Codex (`codex exec`), in a fresh project. Add other hosts through a small
-  [adapter](docs/hosts.md).
+  [adapter](https://github.com/otaviobarros/seatrial/blob/main/docs/hosts.md).
 - **Graded by code.** A case's `grade()` checks files, Git state, commands, and the
   final message. No model judges the result.
 - **Two revisions, one verdict.** `compare` runs `main` against your uncommitted
@@ -31,8 +31,8 @@ takes the skill out on a fixed course, many times, and records what happened.
 ## How it works
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.svg">
-  <img alt="Diagram of one trial in five steps: case, mount, agent, evidence, grade. The trial repeats n times per case, host, and revision, and the results go to summary.json." src="docs/images/how-it-works-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/how-it-works-dark.svg">
+  <img alt="Diagram of one trial in five steps: case, mount, agent, evidence, grade. The trial repeats n times per case, host, and revision, and the results go to summary.json." src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/how-it-works-light.svg">
 </picture>
 
 <details>
@@ -84,12 +84,12 @@ Run it with [uv](https://docs.astral.sh/uv/). `uvx` builds the package into a ca
 isolated environment and runs the command; nothing is installed into your project.
 
 ```sh
-uvx --from git+https://github.com/otaviobarros/seatrial seatrial --help  # from Git
-uvx --from . seatrial --help                                            # from a checkout
-uv tool install git+https://github.com/otaviobarros/seatrial            # keep `seatrial` on PATH
+uvx seatrial --help                  # from PyPI
+uvx --from . seatrial --help         # from a checkout
+uv tool install seatrial             # keep `seatrial` on PATH
 ```
 
-Without uv, use `pipx install git+https://github.com/otaviobarros/seatrial`, or run `python3 -m seatrial`
+Without uv, use `pipx install seatrial`, or run `python3 -m seatrial`
 with `src/` on `PYTHONPATH`. The package has no dependencies beyond Python 3.11+.
 
 seatrial runs on macOS and Linux. Windows is not supported; use WSL.
@@ -113,7 +113,7 @@ seatrial                 # interactive mode on a terminal
 
 On a terminal, `init` asks which folder, namespace, case folder, and hosts to use.
 With `--yes` or without a terminal, it uses the detected values. See
-[configuration](docs/configuration.md) for every key.
+[configuration](https://github.com/otaviobarros/seatrial/blob/main/docs/configuration.md) for every key.
 
 ## Commands
 
@@ -133,11 +133,11 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `interactive` | Menu-driven mode; also the default with no arguments on a terminal |
 
 Every command except `interactive` accepts `--json`. `seatrial COMMAND --help` lists all options.
-For agents and CI, read [using seatrial from an agent](docs/agents.md).
+For agents and CI, read [using seatrial from an agent](https://github.com/otaviobarros/seatrial/blob/main/docs/agents.md).
 
 ## Agent skill
 
-[`skills/seatrial`](skills/seatrial/SKILL.md) teaches an agent to set up seatrial,
+[`skills/seatrial`](https://github.com/otaviobarros/seatrial/blob/main/skills/seatrial/SKILL.md) teaches an agent to set up seatrial,
 write cases, run and compare within a budget, and read the results. Install it with
 the [skills](https://skills.sh) CLI:
 
@@ -184,8 +184,8 @@ and the command exits 1.
 ## Verdicts
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/compare-dark.svg">
-  <img alt="compare: base main passes 4 of 10 trials, head WORKTREE passes 10 of 10, verdict improved with Fisher p = 0.011" src="docs/images/compare-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/compare-dark.svg">
+  <img alt="compare: base main passes 4 of 10 trials, head WORKTREE passes 10 of 10, verdict improved with Fisher p = 0.011" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/compare-light.svg">
 </picture>
 
 `compare` gives each case and host one advisory verdict:
@@ -204,7 +204,7 @@ median lines added, mean wall time, and host-reported cost. Use
 `--fail-on-regression` to exit 4 on any `regressed` verdict.
 
 <p align="center">
-  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="docs/images/terminal.svg" width="880">
+  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
 </p>
 
 ## Results
@@ -252,10 +252,10 @@ retained trial files before you inspect them with tools that write.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md): `seatrial.toml` keys and defaults.
-- [Writing cases](docs/cases.md): `case.toml`, `case.py`, evidence, and grading helpers.
-- [Hosts](docs/hosts.md): built-in adapters and how to add one.
-- [Using seatrial from an agent](docs/agents.md): JSON output, exit codes, and a safe procedure.
+- [Configuration](https://github.com/otaviobarros/seatrial/blob/main/docs/configuration.md): `seatrial.toml` keys and defaults.
+- [Writing cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md): `case.toml`, `case.py`, evidence, and grading helpers.
+- [Hosts](https://github.com/otaviobarros/seatrial/blob/main/docs/hosts.md): built-in adapters and how to add one.
+- [Using seatrial from an agent](https://github.com/otaviobarros/seatrial/blob/main/docs/agents.md): JSON output, exit codes, and a safe procedure.
 
 ## License
 

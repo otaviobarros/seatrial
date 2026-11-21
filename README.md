@@ -65,6 +65,16 @@ With `--yes` or without a terminal, it uses the detected values. See
 Every command except `interactive` accepts `--json`. `seatrial COMMAND --help` lists all options.
 For agents and CI, read [using seatrial from an agent](docs/agents.md).
 
+## Agent skill
+
+[`skills/seatrial`](skills/seatrial/SKILL.md) teaches an agent to set up seatrial,
+write cases, run and compare within a budget, and read the results. Install it with
+the [skills](https://skills.sh) CLI:
+
+```sh
+npx skills add otaviobarros/seatrial
+```
+
 ## Run and compare
 
 `run` and `compare` call host CLIs and spend quota. Before a native run:

@@ -136,8 +136,10 @@ def terminal(summary):
     return '\n'.join([text] + notes + footer)
 
 
-def runs(state):
-    """Retained run directories under state, newest first, each with a short description."""
+def runs(state, root=None):
+    """Retained run directories under state, newest first, each with a short description.
+
+    With root, keep only runs recorded for that project root; the state directory is shared."""
     from pathlib import Path
     import json
     found = []
@@ -145,10 +147,12 @@ def runs(state):
         work = work.parent
         records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines() if line.strip()]
         meta = {}
-        for name in ('summary-regraded.json', 'summary.json'):
+        for name in ('summary-regraded.json', 'summary.json', 'run.json'):
             if (work / name).exists():
                 meta = json.loads((work / name).read_text())
                 break
+        if root is not None and meta.get('root') != str(root):
+            continue
         costs = [r['cost_usd'] for r in records if isinstance(r.get('cost_usd'), (int, float))]
         found.append({'name': work.name, 'path': str(work), 'project': meta.get('project'),
                       'arms': meta.get('arms'), 'revisions': meta.get('revisions'),
@@ -157,5 +161,5 @@ def runs(state):
                       'cases': sorted({r['case_id'] for r in records}),
                       'passed': sum(1 for r in records if r.get('pass')),
                       'cost_usd': round(sum(costs), 4) if costs else None,
-                      'summarized': bool(meta)})
+                      'summarized': (work / 'summary.json').is_file()})
     return found

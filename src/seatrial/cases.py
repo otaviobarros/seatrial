@@ -124,7 +124,10 @@ def _load_shared(path):
 def parse(path, root=None):
     """Read and validate one case directory."""
     root = Path(root or case_root())
-    meta = tomllib.loads((path / 'case.toml').read_text())
+    try:
+        meta = tomllib.loads((path / 'case.toml').read_text())
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError(f'{path / "case.toml"}: {error}') from None
     problems = [f'missing {key}' for key in REQUIRED if key not in meta]
     if problems:
         raise ValueError(f'{path}: ' + ', '.join(problems))

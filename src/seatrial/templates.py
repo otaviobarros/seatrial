@@ -1,10 +1,19 @@
 """File templates for `init` and `new-case`."""
 
-CASE_TOML = '''id = "{id}"
+
+def toml_string(value):
+    """Quote text as a TOML basic string; escape quotes, backslashes, and control characters."""
+    escaped = ''.join(f'\\u{ord(c):04x}' if ord(c) < 0x20 or ord(c) == 0x7f else
+                      '\\' + c if c in '"\\' else c for c in value)
+    return f'"{escaped}"'
+
+
+# Values are inserted with toml_string.
+CASE_TOML = '''id = {id}
 version = 1
-skill = "{skill}"
+skill = {skill}
 suite = "capability"
-summary = "{summary}"
+summary = {summary}
 rules = []
 primary = "{primary}"
 # rate: compared as a pass rate. zero: any failure is a regression.

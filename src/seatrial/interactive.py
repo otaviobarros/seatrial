@@ -90,8 +90,13 @@ def main(config_path=None):
                ('compare', 'Compare two revisions'), ('runs', 'Browse past runs'),
                ('doctor', 'Check the setup'), ('hosts', 'Show host CLIs'), ('quit', 'Quit')]
     while True:
+        try:
+            cases = ui.count(len(case_index.discover()), 'case')
+        except ValueError as error:
+            cases = 'cases unreadable'
+            print(ui.bad(str(error)))
         print(ui.info(f"{cfg.name}: {ui.count(len(setup.skill_names(cfg)), 'skill')}, "
-                      f"{ui.count(len(case_index.discover()), 'case')}, hosts {', '.join(cfg.hosts)}"))
+                      f"{cases}, hosts {', '.join(cfg.hosts)}"))
         try:
             action = ui.choose('What next?', actions)
         except KeyboardInterrupt:
@@ -112,3 +117,5 @@ def main(config_path=None):
                 run([action])
         except KeyboardInterrupt:
             print('\n' + ui.warn('cancelled') + '\n')
+        except ValueError as error:  # An unreadable case.toml; the message names the file.
+            print(ui.bad(str(error)) + '\n')

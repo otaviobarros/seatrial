@@ -1,15 +1,17 @@
 """Project setup (`init`) and environment checks (`doctor`)."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tomllib
 
 from seatrial import config, ui
 from seatrial import cases as case_index
 from seatrial import hosts as registry
-from seatrial.templates import CASE_PY, CASE_TOML, EXAMPLE_PY, FIXTURE_README
+from seatrial.templates import CASE_PY, CASE_TOML, EXAMPLE_PY, FIXTURE_README, toml_string
 
 SKIP = {'.git', 'node_modules', '.venv', 'venv', '__pycache__', '.tox', 'dist', 'build'}
 
@@ -98,8 +100,10 @@ def init(root, skills=None, layout=None, namespace=None, cases='evals/cases', ho
     cfg = config.activate(config.load(target))
     cfg.cases.mkdir(parents=True, exist_ok=True)
     names = skill_names(cfg)
-    if example and names:
-        written += new_case(cfg, names[0], f'{names[0]}-smoke-001', example=True)
+    example_id = f'{names[0]}-smoke-001' if names else None
+    if (example and names and case_index.ID.match(example_id)
+            and example_id not in case_index.discover(cfg.cases)):
+        written += new_case(cfg, names[0], example_id, example=True)
     return {'config': str(target), 'skills': str(path), 'layout': layout, 'namespace': namespace,
             'skills_found': names, 'cases': str(cfg.cases), 'hosts': hosts, 'written': written}
 
@@ -108,15 +112,19 @@ def new_case(cfg, skill, case_id, summary=None, example=False):
     """Create a case folder; return the written paths."""
     if not case_index.ID.match(case_id):
         raise ValueError('a case id looks like name-001')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', skill) or skill.startswith('..'):
+        raise ValueError('a skill name uses letters, digits, hyphens, underscores, and dots')
     if case_id in case_index.discover(cfg.cases):
         raise ValueError(f'case {case_id} already exists')
-    directory = cfg.cases / skill / case_id
-    (directory / 'fixture').mkdir(parents=True)
     primary = 'skill-loaded' if example else 'behavior'
     summary = summary or ('The host loads the skill and leaves the project unchanged.' if example
                           else 'TODO: one sentence on the behavior this case checks.')
-    (directory / 'case.toml').write_text(CASE_TOML.format(id=case_id, skill=skill, summary=summary,
-                                                          primary=primary))
+    text = CASE_TOML.format(id=toml_string(case_id), skill=toml_string(skill),
+                            summary=toml_string(summary), primary=primary)
+    tomllib.loads(text)
+    directory = cfg.cases / skill / case_id
+    (directory / 'fixture').mkdir(parents=True)
+    (directory / 'case.toml').write_text(text)
     (directory / 'case.py').write_text(EXAMPLE_PY if example else CASE_PY)
     (directory / 'fixture/README.md').write_text(FIXTURE_README)
     return [str(directory / name) for name in ('case.toml', 'case.py', 'fixture/README.md')]

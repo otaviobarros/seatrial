@@ -60,7 +60,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
 | `interactive` | Menu-driven mode; also the default with no arguments on a terminal |
 
-Every command accepts `--json`. `seatrial COMMAND --help` lists all options.
+Every command except `interactive` accepts `--json`. `seatrial COMMAND --help` lists all options.
 For agents and CI, read [using seatrial from an agent](docs/agents.md).
 
 ## Run and compare
@@ -115,12 +115,14 @@ median lines added, mean wall time, and host-reported cost. Use
 
 Each invocation writes a run directory under `[run] state_dir` (default
 `$SEATRIAL_STATE`, else `~/.cache/workspaces/<timestamp>/`). The path prints at
-the end of the run. Keep it out of version control.
+the end of the run. Keep it out of version control. Projects can share a state
+directory: `runs`, `report latest`, and `regrade` show only the current project's runs.
 
 | File | Content |
 |---|---|
+| `run.json` | The run settings and revisions, written before the first trial |
 | `records.jsonl` | One record per trial, written as each trial ends |
-| `summary.json` | Per-case, per-host, per-revision summaries and verdicts |
+| `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
 
 Trial directories use random names so that no path the agent sees names the

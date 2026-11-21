@@ -64,6 +64,15 @@ class InitTests(unittest.TestCase):
             code, _, err = call('--config', str(root / config.FILENAME), 'init', '--yes')
             self.assertEqual(code, cli.EXIT['config'])
             self.assertIn('--force', err)
+            code, _, err = call('--config', str(root / config.FILENAME), 'init', '--yes', '--force', '--host', 'claude')
+            self.assertEqual(code, 0, err)
+            self.assertIn('hosts = ["claude"]', (root / config.FILENAME).read_text())
+            code, out, err = call('--config', str(root / config.FILENAME), 'run', '--dry-run', '--json')
+            self.assertEqual(code, 0, err)
+            self.assertGreater(json.loads(out)['count'], 0)
+            code, _, err = call('--config', str(root / config.FILENAME), 'compare', '--base', 'main', '--dry-run')
+            self.assertEqual(code, cli.EXIT['usage'])
+            self.assertIn('needs the skills folder in a Git checkout', err)
 
     def test_find_skills_prefers_a_plugin_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -99,6 +108,29 @@ class CommandTests(ProjectCase, unittest.TestCase):
         code, _, err = self.run_cli('report')
         self.assertEqual(code, cli.EXIT['usage'])
         self.assertIn('no retained runs', err)
+
+    def test_new_case_writes_quoted_text_as_valid_toml(self):
+        summary = 'Says "hi" first.\\ Then stops.'
+        code, _, err = self.run_cli('new-case', '--skill', 'demo', '--id', 'demo-002', '--summary', summary, '--json')
+        self.assertEqual(code, 0, err)
+        code, out, _ = self.run_cli('list', '--json')
+        self.assertEqual(json.loads(out)[0]['summary'], summary)
+        for number, text in (('004', 'Waves \U0001f44b first.'), ('005', 'Tab\tand delete\x7f.')):
+            code, _, err = self.run_cli('new-case', '--skill', 'demo', '--id', f'demo-{number}', '--summary', text)
+            self.assertEqual(code, 0, err)
+        code, out, err = self.run_cli('list', '--json')
+        self.assertEqual(code, 0, err)
+        self.assertIn('Waves \U0001f44b first.', [case['summary'] for case in json.loads(out)])
+        code, _, err = self.run_cli('new-case', '--skill', '../outside', '--id', 'demo-003', '--json')
+        self.assertEqual(code, cli.EXIT['usage'])
+
+    def test_unreadable_case_names_its_file(self):
+        broken = self.cfg.cases / 'demo/demo-009'
+        broken.mkdir(parents=True)
+        (broken / 'case.toml').write_text('id = "demo-009\n')
+        code, _, err = self.run_cli('list')
+        self.assertEqual(code, cli.EXIT['usage'])
+        self.assertIn('demo-009/case.toml', err)
 
     def test_missing_configuration_exits_3(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 import sys
 
-from seatrial import __version__, config, report, runner, setup, ui
+from seatrial import __version__, config, report, runner, setup, ui, workspace
 from seatrial import cases as case_index
 from seatrial import hosts as registry
 from seatrial.ports import EVIDENCE_KEYS
@@ -146,7 +146,11 @@ def selected(parser, args):
 
 
 def command_list(parser, args):
-    if not any((args.case, args.skill, args.rule, args.suite, args.host)) and not case_index.discover():
+    try:
+        empty = not case_index.discover()
+    except ValueError as error:
+        parser.error(str(error))
+    if not any((args.case, args.skill, args.rule, args.suite, args.host)) and empty:
         emit(args, [], ui.info('no cases yet; run `seatrial new-case`'))
         return EXIT['ok']
     found = selected(parser, args)
@@ -202,8 +206,11 @@ def parse_models(parser, values, hosts):
 
 def resolve_options(parser, args):
     cfg, caps = config.current(), runner.limits()
-    values = {'n': args.n or cfg.defaults['n'], 'jobs': args.jobs or cfg.defaults['jobs'],
-              'max_runs': args.max_runs or caps['max_runs'], 'max_minutes': args.max_minutes or caps['max_minutes']}
+    def pick(value, default):
+        return default if value is None else value
+    values = {'n': pick(args.n, cfg.defaults['n']), 'jobs': pick(args.jobs, cfg.defaults['jobs']),
+              'max_runs': pick(args.max_runs, caps['max_runs']),
+              'max_minutes': pick(args.max_minutes, caps['max_minutes'])}
     checks = [('n', values['n'], caps['max_n']), ('jobs', values['jobs'], caps['max_jobs']),
               ('max-runs', values['max_runs'], caps['max_runs']),
               ('max-minutes', values['max_minutes'], caps['max_minutes'])]
@@ -218,6 +225,11 @@ def resolve_options(parser, args):
 def plan(parser, args, revisions):
     """Validate a run request and return (cases, hosts, models, jobs, values)."""
     values = resolve_options(parser, args)
+    for revision in revisions.values():
+        try:
+            workspace.check_revision(revision)
+        except ValueError as error:
+            parser.error(str(error))
     args.effort = args.effort or config.current().defaults['effort']
     chosen = selected(parser, args)
     try:
@@ -287,16 +299,22 @@ def run_directory(parser, value):
         if not (path / 'records.jsonl').is_file():
             parser.error(f'{path} is not a run directory')
         return path
-    runs = report.runs(config.current().state)
+    runs = report.runs(config.current().state, config.current().root)
     if not runs:
-        parser.error('no retained runs yet; run `seatrial run`')
+        parser.error('no retained runs for this project yet; run `seatrial run`')
     return Path(runs[0]['path'])
 
 
 def command_regrade(parser, args):
     work = run_directory(parser, args.run_dir)
-    cases = case_index.discover()
-    meta, records = runner.regrade(work, cases)
+    root = runner.run_meta(work).get('root')
+    if root and root != str(config.current().root):
+        parser.error(f'{work} belongs to the project at {root}; regrade it from there')
+    try:
+        cases = case_index.discover()
+        meta, records = runner.regrade(work, cases)
+    except ValueError as error:
+        parser.error(str(error))
     chosen = [cases[c] for c in dict.fromkeys(r['case_id'] for r in records) if c in cases]
     return publish(args, meta, records, chosen, work, 'summary-regraded.json')
 
@@ -307,7 +325,7 @@ def command_report(parser, args):
     if not path.exists():
         path = work / 'summary.json'
     if not path.exists():
-        parser.error(f'{work} has no summary; the run may still be going, or run `seatrial regrade`')
+        parser.error(f'{work} has no summary; the run may still be going, or it stopped: run `seatrial regrade {work}`')
     summary = json.loads(path.read_text())
     text = report.markdown(summary) if args.format == 'markdown' else report.terminal(summary)
     emit(args, {'run_dir': str(work), 'summary': summary}, text)
@@ -315,7 +333,7 @@ def command_report(parser, args):
 
 
 def command_runs(parser, args):
-    found = report.runs(config.current().state)[:args.limit]
+    found = report.runs(config.current().state, config.current().root)[:args.limit]
     rows = [[r['name'], r['finished'], ','.join(r['hosts']), len(r['cases']),
              '-' if r['cost_usd'] is None else f"{r['cost_usd']:.2f}", r['path']] for r in found]
     emit(args, found, ui.table(['Run', 'Trials', 'Hosts', 'Cases', 'Cost USD', 'Path'], rows)

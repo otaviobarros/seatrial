@@ -17,7 +17,7 @@ import time
 from seatrial import config, report
 from seatrial.ports import Trial, validate_evidence
 from seatrial.process import launch
-from seatrial.workspace import delta, manifest, mount, new_run_directory, retained
+from seatrial.workspace import check_revision, delta, manifest, mount, new_run_directory, retained
 
 STOP = ('usage_limit', 'auth_error')
 
@@ -137,6 +137,11 @@ def execute(cases, hosts, revisions, options, on_record=None):
         raise SystemExit(f'host CLI unavailable: {", ".join(missing)}')
     arms = list(revisions)
     jobs = schedule(cases, hosts, arms, options['n'])
+    for revision in revisions.values():
+        try:
+            check_revision(revision)
+        except ValueError as error:
+            raise SystemExit(str(error)) from None
     work = new_run_directory()
     mounts, identities = {}, {}
     for position, (arm, revision) in enumerate(revisions.items()):
@@ -146,6 +151,14 @@ def execute(cases, hosts, revisions, options, on_record=None):
                'revisions': identities, 'models': options['models'], 'effort': options['effort'],
                'timeout': options['timeout'] or defaults()['timeout'], 'timeout_override': options['timeout'],
                'budget_usd': options['budget_usd'], 'lock': threading.Lock()}
+    cfg = config.current()
+    started = {'created_at': work.name, 'project': context_name(), 'root': str(cfg.root), 'arms': arms,
+               'revisions': identities, 'hosts': hosts, 'cli_versions': versions,
+               'models': {h: options['models'][h] for h in hosts}, 'effort_override': options['effort'],
+               'n': options['n'], 'jobs': options['jobs'], 'max_minutes': options['max_minutes'],
+               'max_cost_usd': options['max_cost_usd'], 'budget_usd': options['budget_usd'],
+               'scheduled': len(jobs)}
+    (work / 'run.json').write_text(json.dumps(started, indent=2) + '\n')
     stop, records, lock = threading.Event(), [], threading.Lock()
     deadline = time.monotonic() + options['max_minutes'] * 60
     out = work / 'records.jsonl'
@@ -176,13 +189,16 @@ def execute(cases, hosts, revisions, options, on_record=None):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=options['jobs']) as pool:
         list(pool.map(worker, jobs))
-    meta = {'created_at': work.name, 'project': context_name(), 'arms': arms, 'revisions': identities, 'hosts': hosts,
-            'cli_versions': versions, 'models': {h: options['models'][h] for h in hosts},
-            'effort_override': options['effort'], 'n': options['n'], 'jobs': options['jobs'],
-            'max_minutes': options['max_minutes'], 'max_cost_usd': options['max_cost_usd'],
-            'budget_usd': options['budget_usd'], 'scheduled': len(jobs), 'finished': len(records),
-            'stopped_early': stop.is_set() or len(records) < len(jobs)}
+    meta = {**started, 'finished': len(records), 'stopped_early': stop.is_set() or len(records) < len(jobs)}
     return meta, records, work
+
+
+def run_meta(work):
+    """The run's metadata: the final summary when the run finished, else what it recorded at start."""
+    for name in ('summary.json', 'run.json'):
+        if (Path(work) / name).is_file():
+            return json.loads((Path(work) / name).read_text())
+    return {}
 
 
 def context_name():
@@ -193,9 +209,13 @@ def context_name():
 def regrade(work, cases):
     """Grade retained trials again with the current case code; both arms alike."""
     work = Path(work)
-    meta = json.loads((work / 'summary.json').read_text())
+    meta = run_meta(work)
+    if not meta:
+        raise ValueError(f'{work} has neither summary.json nor run.json; it cannot be regraded')
     meta = {k: v for k, v in meta.items() if k not in ('cases', 'cost_usd_total')}
     records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines() if line]
+    meta.setdefault('finished', len(records))
+    meta.setdefault('stopped_early', len(records) < meta.get('scheduled', len(records)))
     for record in records:
         if record['status'] not in ('completed', 'control') or record['case_id'] not in cases:
             continue

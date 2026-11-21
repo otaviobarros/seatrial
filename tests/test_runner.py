@@ -89,7 +89,7 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertFalse(self.cfg.state.exists())
 
     def test_caps_and_selectors_are_enforced(self):
-        for argv in (['--n', '11'], ['--timeout', '601'], ['--jobs', '5'], ['--max-minutes', '91'],
+        for argv in (['--n', '11'], ['--n', '0'], ['--max-runs', '0'], ['--timeout', '601'], ['--jobs', '5'], ['--max-minutes', '91'],
                      ['--n', '3', '--max-runs', '5'], ['--case', 'missing-001'], ['--host', 'missing-host'],
                      ['--model', 'other=model']):
             with self.subTest(argv=argv), self.assertRaises(SystemExit):
@@ -126,6 +126,38 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertIn('| demo-002 | fake | head |', out)
         ok, out = self.cli('report', 'latest', '--json')
         self.assertEqual(json.loads(out)['run_dir'], str(work))
+
+    def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
+        for extra in (['--dry-run'], []):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit) as raised:
+                self.cli('compare', '--base', 'no-such-revision', '--skill', 'demo', '--host', 'fake', *extra)
+            self.assertEqual(raised.exception.code, cli.EXIT['usage'])
+        self.assertFalse(self.cfg.state.exists())
+
+    def test_interrupted_run_regrades_from_its_start_record(self):
+        ok, out = self.cli('run', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        (work / 'summary.json').unlink()  # As after Ctrl-C: records and run.json only.
+        with self.assertRaises(SystemExit):
+            self.cli('report', str(work))
+        ok, out = self.cli('regrade', str(work), '--json')
+        self.assertTrue(ok, out)
+        self.assertEqual(list(json.loads(out)['summary']['cases']), ['demo-001'])
+
+    def test_runs_and_regrade_stay_within_their_project(self):
+        ok, out = self.cli('run', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        for name in ('run.json', 'summary.json'):
+            data = json.loads((work / name).read_text())
+            data['root'] = '/another/project'
+            (work / name).write_text(json.dumps(data))
+        ok, out = self.cli('runs', '--json')
+        self.assertEqual(json.loads(out), [])
+        for target in ('latest', str(work)):
+            with self.subTest(target=target), self.assertRaises(SystemExit) as raised:
+                self.cli('regrade', target)
+            self.assertEqual(raised.exception.code, cli.EXIT['usage'])
+        self.assertFalse((work / 'summary-regraded.json').exists())
 
     def test_failing_trial_is_graded_as_a_failure(self):
         cases_root = self.cfg.cases

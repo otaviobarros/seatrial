@@ -131,7 +131,7 @@ class SkillsLayoutMountTests(ProjectCase, unittest.TestCase):
                 mount(revision, target)
                 self.assertTrue((target / 'skills/demo/SKILL.md').is_file())
                 manifest_file = json.loads((target / '.claude-plugin/plugin.json').read_text())
-                self.assertEqual(manifest_file['name'], 'skills')
+                self.assertEqual(manifest_file, {'name': 'skills', 'version': '0.0.0'})
 
     def test_worktree_runs_without_git(self):
         import shutil

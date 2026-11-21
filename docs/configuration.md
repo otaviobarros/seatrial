@@ -34,7 +34,7 @@ max_minutes = 90
 max_timeout = 600
 
 [hosts]
-modules = ["evals.hosts.gemini"]  # extra adapter modules, importable from python_path
+modules = ["gemini_host"]  # adapter modules on python_path, such as evals/lib/gemini_host.py
 models = { claude = "claude-haiku-5-5", codex = "gpt-6-luna" }
 ```
 

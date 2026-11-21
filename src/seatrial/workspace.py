@@ -82,6 +82,20 @@ def resolve(revision):
     return {'name': revision, 'sha': full, 'tree': git('rev-parse', f'{full}:{rel}' if rel != '.' else f'{full}^{{tree}}', cwd=top)}
 
 
+def check_revision(revision):
+    """Resolve one revision or raise ValueError with a message for the user."""
+    if revision == WORKTREE:
+        return resolve(revision)
+    try:
+        source()
+    except (subprocess.CalledProcessError, OSError, ValueError):
+        raise ValueError(f'revision {revision!r} needs the skills folder in a Git checkout') from None
+    try:
+        return resolve(revision)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'revision {revision!r} is not a commit in the skills repository') from None
+
+
 def mount(revision, dest):
     """Extract the whole skills folder at one revision; never mix files across revisions.
 
@@ -102,7 +116,7 @@ def mount(revision, dest):
     if cfg.layout == 'skills':
         (dest / '.claude-plugin').mkdir(exist_ok=True)
         (dest / '.claude-plugin/plugin.json').write_text(
-            json.dumps({'name': cfg.namespace, 'version': '0.0.0-eval'}, indent=2) + '\n')
+            json.dumps({'name': cfg.namespace, 'version': '0.0.0'}, indent=2) + '\n')
     if revision == WORKTREE:
         identity['tree'] = 'files:' + tree_hash(dest)
     return identity

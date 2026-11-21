@@ -1,10 +1,12 @@
 <!-- markdownlint-disable-next-line MD041 -->
 <p align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
-  <img alt="seatrial: sea trials for agent skills" src="docs/images/hero-light.svg" width="880">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
+  <img alt="seatrial" src="docs/images/logo-light.png" width="420">
 </picture>
 </p>
+
+<p align="center">Sea trials for agent skills.</p>
 
 <p align="center">
   <a href="https://github.com/otaviobarros/seatrial/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/otaviobarros/seatrial/actions/workflows/ci.yml/badge.svg"></a>

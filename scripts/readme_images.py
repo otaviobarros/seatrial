@@ -39,18 +39,6 @@ def text(x, y, content, size=14, fill='#000', weight=400, anchor='start', family
             f'fill="{fill}" text-anchor="{anchor}"{extra}>{escape(content)}</text>')
 
 
-def wave(x0, x1, y, amplitude, length, color, width=2, opacity=1.0):
-    points = [f'M{x0},{y}']
-    x, up = x0, True
-    while x < x1:
-        step = min(length, x1 - x)
-        points.append(f'q{step / 2},{-amplitude if up else amplitude} {step},0')
-        x += step
-        up = not up
-    return (f'<path d="{" ".join(points)}" fill="none" stroke="{color}" stroke-width="{width}" '
-            f'stroke-linecap="round" opacity="{opacity}"/>')
-
-
 def buoy(cx, cy, passed, t):
     color = t['pass'] if passed else t['fail']
     mark = (f'<path d="M{cx - 5},{cy} l4,4 l7,-8" fill="none" stroke="{t["chip_text"]}" stroke-width="2.4" '
@@ -58,28 +46,6 @@ def buoy(cx, cy, passed, t):
             f'<path d="M{cx - 4},{cy - 4} l8,8 M{cx + 4},{cy - 4} l-8,8" stroke="{t["chip_text"]}" '
             'stroke-width="2.4" stroke-linecap="round"/>')
     return f'<circle cx="{cx}" cy="{cy}" r="11" fill="{color}"/>{mark}'
-
-
-def hero(t):
-    w, h = 960, 240
-    parts = [text(40, 108, 'seatrial', 64, t['text'], 700, extra=' letter-spacing="-1.5"'),
-             text(44, 146, 'Sea trials for agent skills.', 22, t['accent'], 600),
-             text(44, 178, 'Run fixed cases on real agent CLIs, grade every trial with code,', 15, t['muted']),
-             text(44, 199, 'and learn whether a skill edit made the agent better or worse.', 15, t['muted'])]
-    # The course: a boat sails past buoys, each one a graded trial.
-    for i, offset in enumerate((0, 14, 28)):
-        parts.append(wave(520, 930, 168 + offset, 5, 34, t['sea'], 2, 0.9 - 0.3 * i))
-    hull = (f'<path d="M560,150 h88 l-14,18 h-62 z" fill="{t["hull"]}"/>'
-            f'<path d="M600,146 v-74 l38,64 z" fill="{t["accent"]}"/>'
-            f'<path d="M596,146 v-58 l-26,52 z" fill="{t["sea"]}" opacity="0.85"/>')
-    parts.append(hull)
-    parts.append(wave(486, 556, 160, 3, 18, t['sea'], 1.6, 0.6))
-    for i, passed in enumerate((True, True, False, True, True)):
-        x = 690 + i * 52
-        parts.append(f'<line x1="{x}" y1="126" x2="{x}" y2="160" stroke="{t["line"]}" stroke-width="2"/>')
-        parts.append(buoy(x, 118, passed, t))
-    parts.append(text(822, 92, 'each buoy is one trial', 13, t['muted'], anchor='middle'))
-    return svg(w, h, '\n'.join(parts), 'seatrial: sea trials for agent skills')
 
 
 def station(x, y, w, h, number, title, lines, t, code=None):
@@ -233,7 +199,7 @@ def terminal_svg(lines):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, draw in (('hero', hero), ('how-it-works', how_it_works), ('compare', compare)):
+    for name, draw in (('how-it-works', how_it_works), ('compare', compare)):
         for theme, palette in THEMES.items():
             (OUT / f'{name}-{theme}.svg').write_text(draw(palette))
     (OUT / 'terminal.svg').write_text(terminal_svg(capture()))

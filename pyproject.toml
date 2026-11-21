@@ -15,6 +15,8 @@ keywords = ["agents", "skills", "evaluation", "claude", "codex"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Environment :: Console",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Topic :: Software Development :: Testing",
 ]
 

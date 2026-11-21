@@ -30,6 +30,11 @@ class ConfigTests(unittest.TestCase):
                              ({'skills': {'path': '.', 'colour': 1}}, 'skills.colour'),
                              ({'skills': {'path': '.', 'layout': 'flat'}}, 'layout'),
                              ({'skills': {'path': '.'}, 'limits': {'max_n': 0}}, 'max_n'),
+                             ({'skills': {'path': '.'}, 'run': {'n': '3'}}, 'run.n must be a positive integer'),
+                             ({'skills': {'path': '.'}, 'run': {'jobs': True}}, 'run.jobs'),
+                             ({'skills': {'path': '.'}, 'cases': {'hosts': 'claude'}}, 'cases.hosts must be a list'),
+                             ({'skills': {'path': '.'}, 'hosts': {'models': {'claude': 1}}}, 'hosts.models'),
+                             ({'skills': {'path': 3}}, 'skills.path must be a string'),
                              ({}, 'path is required')):
             with self.subTest(reason=reason), self.assertRaisesRegex(config.ConfigError, reason):
                 config.from_dict(data, '.')
@@ -73,6 +78,22 @@ class InitTests(unittest.TestCase):
             code, _, err = call('--config', str(root / config.FILENAME), 'compare', '--base', 'main', '--dry-run')
             self.assertEqual(code, cli.EXIT['usage'])
             self.assertIn('needs the skills folder in a Git checkout', err)
+
+    def test_find_skills_looks_inside_dot_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'p/linked').mkdir(parents=True)
+            (Path(tmp) / 'p/linked/.git').write_text('gitdir: /repo/.git/worktrees/linked\n')
+            (Path(tmp) / 'p/vendor').mkdir()
+            (Path(tmp) / 'p/vendor/.git').write_text('gitdir: ../.git/modules/vendor\n')
+            for folder in ('.claude/skills/greet', '.worktrees/copy/.claude/skills/greet', '.scratch/skills/greet',
+                           '.claude/worktrees/wt/skills/greet', 'linked/skills/greet', 'vendor/skills/greet',
+                           'vendor/skills/wave'):
+                skill = Path(tmp) / 'p' / folder
+                skill.mkdir(parents=True)
+                (skill / 'SKILL.md').write_text('---\nname: greet\ndescription: Greets.\n---\n')
+            found = setup.find_skills(Path(tmp) / 'p')
+            base = (Path(tmp) / 'p').resolve()
+            self.assertEqual([f['path'] for f in found], [base / 'vendor/skills', base / '.claude/skills'])
 
     def test_find_skills_prefers_a_plugin_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,6 +152,19 @@ class CommandTests(ProjectCase, unittest.TestCase):
         code, _, err = self.run_cli('list')
         self.assertEqual(code, cli.EXIT['usage'])
         self.assertIn('demo-009/case.toml', err)
+
+    def test_errors_are_json_under_json(self):
+        code, out, err = self.run_cli('run', '--n', '0', '--dry-run', '--json')
+        self.assertEqual(code, cli.EXIT['usage'])
+        self.assertEqual(json.loads(out), {'ok': False, 'exit': 2, 'error': json.loads(out)['error']})
+        self.assertIn('--n', json.loads(out)['error'])
+        self.assertEqual(err, '')
+        code, out, _ = self.run_cli('list', '--no-such-flag', '--json')
+        self.assertEqual((code, json.loads(out)['exit']), (2, 2))
+        self.cfg.file.write_text(self.cfg.file.read_text().replace('n = 3', 'n = "3"'))
+        code, out, _ = self.run_cli('list', '--json')
+        self.assertEqual(code, cli.EXIT['config'])
+        self.assertIn('run.n must be a positive integer', json.loads(out)['error'])
 
     def test_missing_configuration_exits_3(self):
         with tempfile.TemporaryDirectory() as tmp:

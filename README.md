@@ -22,6 +22,8 @@ uv tool install git+https://github.com/otaviobarros/seatrial            # keep `
 Without uv, use `pipx install git+https://github.com/otaviobarros/seatrial`, or run `python3 -m seatrial`
 with `src/` on `PYTHONPATH`. The package has no dependencies beyond Python 3.11+.
 
+seatrial runs on macOS and Linux. Windows is not supported; use WSL.
+
 ## Quickstart
 
 ```sh
@@ -121,7 +123,7 @@ directory: `runs`, `report latest`, and `regrade` show only the current project'
 | File | Content |
 |---|---|
 | `run.json` | The run settings and revisions, written before the first trial |
-| `records.jsonl` | One record per trial, written as each trial ends |
+| `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills` and `outside_access` mark trials that used skills from outside the plugin or named the project path |
 | `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
 

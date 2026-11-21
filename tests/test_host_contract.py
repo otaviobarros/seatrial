@@ -98,6 +98,34 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                     self.assertNotIn('CLAUDECODE', env)
                     self.assertEqual(env['CLAUDE_CODE_DISABLE_BACKGROUND_TASKS'], '1')
 
+    def test_environment_passes_only_allowed_variables(self):
+        base = {'PATH': '/bin', 'HOME': '/home/u', 'PWD': str(self.root), 'OLDPWD': '/x', 'LC_ALL': 'C',
+                'SECRET_TOKEN': 's', 'MY_PROXY_TOKEN': 'p', 'OPENAI_API_KEY': 'o', 'ANTHROPIC_API_KEY': 'a'}
+        self.cfg.pass_env = ['MY_*']
+        expected = {'claude': 'ANTHROPIC_API_KEY', 'codex': 'OPENAI_API_KEY'}
+        for name, adapter in hosts.available().items():
+            with self.subTest(host=name), tempfile.TemporaryDirectory() as tmp:
+                t = trial(Path(tmp))
+                t.state['home'] = Path(tmp) / 'home'
+                env = adapter.environment(t, base)
+                for key in ('PWD', 'OLDPWD', 'SECRET_TOKEN'):
+                    self.assertNotIn(key, env)
+                for key in ('PATH', 'LC_ALL', 'MY_PROXY_TOKEN', expected[name]):
+                    self.assertIn(key, env)
+                for other in set(expected.values()) - {expected[name]}:
+                    self.assertNotIn(other, env)
+                if name == 'claude':
+                    self.assertEqual(env['CLAUDE_CONFIG_DIR'], str(Path(tmp) / 'claude-config'))
+                    adapter.release(t, threading.Lock())
+                    self.assertFalse((Path(tmp) / 'claude-config').exists())
+
+    def test_claude_reports_skills_from_outside_the_plugin(self):
+        adapter = hosts.get('claude')
+        evidence = {'skills': ['demo-plugin:demo', 'personal-notes', '/plugin/skills/demo/SKILL.md',
+                               '/home/u/.claude/skills/x/SKILL.md']}
+        self.assertEqual(adapter.foreign_skills(trial(Path('/t')), evidence),
+                         ['personal-notes', '/home/u/.claude/skills/x/SKILL.md'])
+
     def test_environment_isolates_git_from_user_and_system_config(self):
         for name, adapter in hosts.available().items():
             with self.subTest(host=name), tempfile.TemporaryDirectory() as tmp:

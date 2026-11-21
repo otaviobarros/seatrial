@@ -30,6 +30,7 @@ def _source_auth():
 class Codex(HostAdapter):
     name = 'codex'
     default_model = 'gpt-6-luna'
+    pass_env = ('OPENAI_*', 'AZURE_OPENAI_*')
 
     def version(self):
         try:

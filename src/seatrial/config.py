@@ -18,9 +18,29 @@ DEFAULTS = {'n': 3, 'jobs': 1, 'timeout': 180, 'effort': None}
 SECTIONS = {'project': {'name'},
             'skills': {'path', 'layout', 'namespace'},
             'cases': {'path', 'python_path', 'identity_files', 'hosts'},
-            'run': {'state_dir', *DEFAULTS},
+            'run': {'state_dir', 'pass_env', *DEFAULTS},
             'limits': set(LIMITS),
             'hosts': {'modules', 'models'}}
+
+
+# The type of every key: str, an int above zero, a list of strings, or a table of strings.
+TYPES = {'project.name': 'str', 'skills.path': 'str', 'skills.layout': 'str', 'skills.namespace': 'str',
+         'cases.path': 'str', 'cases.python_path': 'list', 'cases.identity_files': 'list',
+         'cases.hosts': 'list', 'run.state_dir': 'str', 'run.pass_env': 'list', 'run.n': 'int',
+         'run.jobs': 'int', 'run.timeout': 'int', 'run.effort': 'str', 'hosts.modules': 'list',
+         'hosts.models': 'table', **{f'limits.{key}': 'int' for key in LIMITS}}
+TYPE_NAMES = {'str': 'a string', 'int': 'a positive integer', 'list': 'a list of strings',
+              'table': 'a table of strings'}
+
+
+def _valid(value, kind):
+    if kind == 'str':
+        return isinstance(value, str)
+    if kind == 'int':
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    if kind == 'list':
+        return isinstance(value, list) and all(isinstance(v, str) for v in value)
+    return isinstance(value, dict) and all(isinstance(v, str) for v in value.values())
 
 
 class ConfigError(ValueError):
@@ -41,6 +61,7 @@ class Config:
     hosts: list = field(default_factory=lambda: ['codex', 'claude'])
     host_modules: list = field(default_factory=list)
     models: dict = field(default_factory=dict)
+    pass_env: list = field(default_factory=list)
     state: Path = None
     defaults: dict = field(default_factory=lambda: dict(DEFAULTS))
     limits: dict = field(default_factory=lambda: dict(LIMITS))
@@ -58,7 +79,8 @@ class Config:
                 'skills': {'path': str(self.skills), 'layout': self.layout, 'namespace': self.namespace},
                 'cases': {'path': str(self.cases), 'python_path': [str(p) for p in self.python_path],
                           'identity_files': [str(p) for p in self.identity_files], 'hosts': self.hosts},
-                'run': {'state_dir': str(self.state), **self.defaults}, 'limits': self.limits,
+                'run': {'state_dir': str(self.state), 'pass_env': self.pass_env, **self.defaults},
+                'limits': self.limits,
                 'hosts': {'modules': self.host_modules, 'models': self.models}}
 
 
@@ -111,6 +133,11 @@ def from_dict(data, root, file=None):
         unknown += [f'{section}.{k}' for k in data.get(section, {}) if k not in keys]
     if unknown:
         raise ConfigError(f'{where}: unknown keys {sorted(unknown)}')
+    for section in SECTIONS:
+        for key, value in data.get(section, {}).items():
+            kind = TYPES[f'{section}.{key}']
+            if not _valid(value, kind):
+                raise ConfigError(f'{where}: {section}.{key} must be {TYPE_NAMES[kind]}')
     project, skills, cases = data.get('project', {}), data.get('skills', {}), data.get('cases', {})
     run, hosts = data.get('run', {}), data.get('hosts', {})
     if 'path' not in skills:
@@ -121,9 +148,6 @@ def from_dict(data, root, file=None):
     resolve = lambda value: (root / Path(value).expanduser()).resolve()
     limits = dict(LIMITS, **data.get('limits', {}))
     defaults = dict(DEFAULTS, **{k: v for k, v in run.items() if k in DEFAULTS})
-    for key, value in limits.items():
-        if not isinstance(value, int) or value < 1:
-            raise ConfigError(f'{where}: limits.{key} must be a positive integer')
     config = Config(root=root, file=file, name=project.get('name', root.name),
                     skills=resolve(skills['path']), layout=layout, namespace=skills.get('namespace'),
                     cases=resolve(cases.get('path', 'evals/cases')),
@@ -131,6 +155,7 @@ def from_dict(data, root, file=None):
                     identity_files=[resolve(p) for p in cases.get('identity_files', [])],
                     hosts=list(cases.get('hosts', ['codex', 'claude'])),
                     host_modules=list(hosts.get('modules', [])), models=dict(hosts.get('models', {})),
+                    pass_env=list(run.get('pass_env', [])),
                     state=resolve(run['state_dir']) if 'state_dir' in run else None,
                     defaults=defaults, limits=limits)
     return config

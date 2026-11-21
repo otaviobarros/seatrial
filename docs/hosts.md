@@ -43,8 +43,19 @@ trial:
 
 - Use no user configuration, user-level skills, MCP servers, or network for tool
   commands. Load skills only from `trial.plugin`.
-- Build the environment from `HostAdapter.environment`, which gives Git only
-  repository config and a fixed identity.
+- Build the environment from `HostAdapter.environment`. It passes only `PASS_ENV`
+  (`PATH`, `HOME`, locale, proxy, and certificate variables), the adapter's
+  `pass_env` patterns, and `[run] pass_env`, and gives Git only repository config and
+  a fixed identity. Name the CLI's own variables, such as `OPENAI_*`, in `pass_env`.
+- Override `foreign_skills(trial, evidence)` to return skills that did not come from
+  the plugin. The runner records them, and every command that names the project path,
+  on the trial as `foreign_skills` and `outside_access`.
+- Claude Code: with `ANTHROPIC_API_KEY` set, each trial gets its own
+  `CLAUDE_CONFIG_DIR`. A subscription login lives in the user's config, so those
+  trials keep it, and `doctor` warns when user-level skills exist.
+- Codex CLI: its sandbox cannot deny reads, so a trial can read the evaluated
+  project. Trials run outside it and receive no `PWD`; `outside_access` records any
+  command that names its path.
 - Give a host sandbox write access to the project, `.git` included, so that cases
   can grade attempted Git writes.
 - Remove any copied login in `release`.

@@ -33,6 +33,29 @@ EXIT = {'ok': 0, 'failed': 1, 'usage': 2, 'config': 3, 'regressed': 4}
 NEEDS_CONFIG = {'doctor': False, 'init': False, 'schema': False}
 
 
+class Parser(argparse.ArgumentParser):
+    """Usage errors become one JSON document on stdout when the command line has --json."""
+    json_errors = False
+
+    def error(self, message):
+        if Parser.json_errors:
+            fail(message, 'usage')
+        super().error(message)
+
+
+def report_error(message, code):
+    """Print an error: JSON on stdout under --json, a marked line on stderr otherwise. Return its exit code."""
+    if Parser.json_errors:
+        print(json.dumps({'ok': False, 'error': message, 'exit': EXIT[code]}))
+    else:
+        print(ui.bad(message), file=sys.stderr)
+    return EXIT[code]
+
+
+def fail(message, code):
+    sys.exit(report_error(message, code))
+
+
 def add_selectors(parser):
     parser.add_argument('--case', action='append', default=[], help='Case ID; repeatable')
     parser.add_argument('--skill', action='append', default=[], help='Skill name; repeatable')
@@ -66,7 +89,7 @@ def add_json(parser):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog='seatrial', description=__doc__,
+    parser = Parser(prog='seatrial', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--version', action='version', version=f'seatrial {__version__}')
     parser.add_argument('--config', type=Path, default=None, help=f'Path to {config.FILENAME}')
@@ -270,8 +293,7 @@ def command_trials(parser, args, revisions):
     try:
         meta, records, work = runner.execute(chosen, hosts, revisions, options, on_record=progress(args))
     except SystemExit as error:
-        print(ui.bad(str(error)), file=sys.stderr)
-        return EXIT['failed']
+        return report_error(str(error), 'failed')
     return publish(args, meta, records, chosen, work)
 
 
@@ -401,8 +423,7 @@ def command_init(parser, args):
                             cases=args.cases, hosts=args.host or None, name=args.name,
                             example=not args.no_example, force=args.force, prompt=prompt)
     except (config.ConfigError, ValueError) as error:
-        print(ui.bad(str(error)), file=sys.stderr)
-        return EXIT['config']
+        return report_error(str(error), 'config')
     lines = [ui.ok(f"wrote {setup.relative(result['config'], root)}"),
              ui.info(f"skills: {setup.relative(result['skills'], root)} ({result['layout']}, "
                      f"{ui.count(len(result['skills_found']), 'skill')} found, /{result['namespace']}:<skill>)"),
@@ -430,13 +451,15 @@ def load_config(parser, args):
             raise config.ConfigError(f'no {config.FILENAME} found here or above; run `seatrial init`')
         config.activate(config.load(path))
     except config.ConfigError as error:
-        print(ui.bad(str(error)), file=sys.stderr)
+        if args.command != 'doctor':  # doctor reports the configuration as one of its checks.
+            report_error(str(error), 'config')
         return False
     return True
 
 
 def main(argv=None):
     parser = build_parser()
+    Parser.json_errors = '--json' in (sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
     if args.no_color:
         ui.set_color(False)

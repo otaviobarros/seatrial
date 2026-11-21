@@ -25,6 +25,7 @@ n = 3
 jobs = 1
 timeout = 180
 state_dir = "~/.cache/my-evals"  # optional run directory root
+pass_env = ["MY_PROXY_TOKEN"]   # extra variables for agent CLIs; globs allowed
 
 [limits]
 max_n = 10
@@ -52,10 +53,14 @@ models = { claude = "claude-haiku-5-5", codex = "gpt-6-luna" }
 | `cases.identity_files` | `[]` | Files whose change invalidates comparisons with old runs |
 | `run.n`, `run.jobs`, `run.timeout` | 3, 1, 180 | Defaults for `--n`, `--jobs`, and trial seconds |
 | `run.effort` | none | Effort for every case, like `--effort`; unset keeps each case's effort |
+| `run.pass_env` | `[]` | Extra environment variables for agent CLIs, by name or glob such as `MY_*`; see [isolation](hosts.md#isolation) |
 | `run.state_dir` | `$SEATRIAL_STATE`, else `$XDG_CACHE_HOME/workspaces` or `~/.cache/workspaces` | Run directories |
 | `limits.*` | see the example | Caps that options cannot exceed; positive integers |
 | `hosts.modules` | `[]` | Modules that define an `ADAPTER`; see [hosts](hosts.md) |
 | `hosts.models` | adapter default | Model per host; `--model HOST=MODEL` overrides it |
+
+Each key has one type: a string, a positive integer, a list of strings, or, for
+`hosts.models`, a table of strings. A value of another type is a configuration error.
 
 Keep `state_dir` outside the project. Run directories hold agent traces and
 fictional projects, not source.

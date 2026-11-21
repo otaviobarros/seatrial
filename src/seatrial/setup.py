@@ -13,7 +13,19 @@ from seatrial import cases as case_index
 from seatrial import hosts as registry
 from seatrial.templates import CASE_PY, CASE_TOML, EXAMPLE_PY, FIXTURE_README, toml_string
 
-SKIP = {'.git', 'node_modules', '.venv', 'venv', '__pycache__', '.tox', 'dist', 'build'}
+SKIP = {'node_modules', 'venv', '__pycache__', 'dist', 'build', 'worktrees'}
+# Hidden folders that hold a project's own agent skills. Other dot folders hold copies:
+# worktrees, scratch space, and release staging.
+DOT_FOLDERS = {'.claude', '.agents', '.codex', '.github'}
+
+
+def linked_worktree(folder):
+    """A linked worktree's .git file points into <repo>/.git/worktrees; a submodule's into modules."""
+    marker = folder / '.git'
+    try:
+        return marker.is_file() and '/worktrees/' in marker.read_text(errors='replace')
+    except OSError:
+        return False
 
 
 def find_skills(root, depth=5):
@@ -22,7 +34,8 @@ def find_skills(root, depth=5):
     found = {}
     for current, directories, files in os.walk(root):
         rel = Path(current).relative_to(root)
-        directories[:] = [d for d in directories if d not in SKIP and not d.startswith('.')]
+        directories[:] = [d for d in directories if d not in SKIP and (not d.startswith('.') or d in DOT_FOLDERS)
+                          and not linked_worktree(Path(current) / d)]
         if len(rel.parts) >= depth:
             directories[:] = []
         if 'SKILL.md' in files:
@@ -188,6 +201,10 @@ def doctor(cfg=None, probe_hosts=True):
         version = adapters[host].version() if probe_hosts else 'not probed'
         add(f'host {host}', 'ok' if version else 'warn',
             f'{version}; model {registry.model(host)}' if version else f'{host} CLI not found or not working')
+    user_skills = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'skills'
+    if 'claude' in cfg.hosts and not os.environ.get('ANTHROPIC_API_KEY') and any(user_skills.glob('*/SKILL.md')):
+        add('claude isolation', 'warn', f'skills in {user_skills} may load in Claude trials; set '
+            'ANTHROPIC_API_KEY to give each trial its own config, or check foreign_skills in the records')
     return results
 
 

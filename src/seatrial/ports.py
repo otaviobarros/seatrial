@@ -9,6 +9,7 @@ calls the methods in this order for every trial:
   command(trial), environment(trial, base)
   ... the runner launches the command and waits ...
   collect(trial)                parse the traces into an Evidence dict
+  foreign_skills(trial, evidence)  skills that did not come from the plugin
   release(trial, lock)          remove private state; never keep a copied login
 
 To add a host, define an `ADAPTER` object that subclasses `HostAdapter` in a module
@@ -18,11 +19,14 @@ with recorded traces under `seatrial/hosts/samples/<name>/`; the contract tests
 (`tests/test_host_contract.py`) replay them. See docs/hosts.md.
 """
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+
+from seatrial import config
 
 
 # Keys every adapter's collect() returns. Case graders may read all of them.
@@ -87,6 +91,21 @@ AUTH_ERROR = re.compile(r'\b401\b|unauthori[sz]ed|not logged in|login required|p
                         r'invalid api key|token (has )?expired', re.I)
 
 
+# Variables every agent CLI receives. Anything else in the caller's environment, such as
+# PWD, tokens, and tool settings, stays out of the trial unless an adapter or
+# `[run] pass_env` names it.
+PASS_ENV = ('PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'TZ', 'LANG', 'LANGUAGE', 'LC_*',
+            'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy',
+            'no_proxy', 'all_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+            # Version managers, so CLIs installed through shims still start.
+            'MISE_*', 'ASDF_*', 'NVM_DIR', 'VOLTA_HOME', 'PNPM_HOME', 'BUN_INSTALL')
+
+
+def filter_environment(base, patterns):
+    """Keep only the variables whose names match one of the glob patterns."""
+    return {key: value for key, value in base.items() if any(fnmatchcase(key, p) for p in patterns)}
+
+
 # The fixed Git identity for trial repositories and the commands that run in them.
 GIT_IDENTITY = ('Dana Reyes', 'dana@example.invalid')
 
@@ -109,6 +128,7 @@ class HostAdapter:
     name = None
     default_model = None
     efforts = ('low', 'medium', 'high')
+    pass_env = ()  # extra variable patterns the CLI needs, such as its API key
     usage_limit = USAGE_LIMIT
     auth_error = AUTH_ERROR
 
@@ -126,7 +146,9 @@ class HostAdapter:
         raise NotImplementedError
 
     def environment(self, trial, base):
-        env = git_environment(base)
+        active = config.active()
+        extra = tuple(active.pass_env) if active else ()
+        env = git_environment(filter_environment(base, PASS_ENV + tuple(self.pass_env) + extra))
         scratch = str(trial.project / '.scratch')
         for key in ('TMPDIR', 'TMP', 'TEMP', 'XDG_CACHE_HOME'):
             env[key] = scratch
@@ -134,6 +156,10 @@ class HostAdapter:
 
     def collect(self, trial):
         raise NotImplementedError
+
+    def foreign_skills(self, trial, evidence):
+        """Skills in the evidence that did not come from the mounted plugin."""
+        return []
 
     def release(self, trial, lock):
         """Remove private state. Return audit fields for the trial record."""

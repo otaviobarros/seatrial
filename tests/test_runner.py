@@ -209,6 +209,15 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         work = Path(out.split('run directory (local only): ')[1].strip())
         self.assertEqual(json.loads((work / 'records.jsonl').read_text())['status'], 'completed')
 
+    def test_commands_that_name_the_project_are_recorded(self):
+        trial = mock.Mock(directory=self.root.parent / 'state/run/trials/ab')
+        evidence = {'skills': [], 'commands': ['ls', f'cat {self.root}/evals/cases/demo/demo-001/case.py',
+                                               f'cat {self.root}2/notes.txt', f'cd {self.root};ls']}
+        found = runner.isolation_findings(Fake(), trial, evidence)
+        self.assertEqual(found, {'outside_access': [evidence['commands'][1], evidence['commands'][3]]})
+        inside = mock.Mock(directory=self.cfg.state / 'run/trials/ab')
+        self.assertEqual(runner.isolation_findings(Fake(), inside, evidence), {})
+
     def test_schedule_skips_hosts_a_case_does_not_support(self):
         demo = cases.discover()['demo-001']
         self.assertEqual(runner.schedule([demo], ['codex'], ['run'], 3), [])

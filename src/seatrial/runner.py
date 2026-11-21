@@ -9,6 +9,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import threading
@@ -72,6 +73,24 @@ def _source_manifest(project, installed):
     return {p: h for p, h in found.items() if not p.startswith(prefix)}
 
 
+def isolation_findings(host, trial, evidence):
+    """Skills from outside the plugin, and commands that name the evaluated project.
+
+    Trials run outside the project, so a command with its path means the agent found
+    the cases or graders; a grade from such a trial is not a clean measurement."""
+    found = {}
+    foreign = host.foreign_skills(trial, evidence)
+    if foreign:
+        found['foreign_skills'] = sorted(set(foreign))[:10]
+    root = config.current().root
+    if root not in Path(trial.directory).resolve().parents:
+        path = re.compile(re.escape(str(root)) + r'(?![\w.-])')
+        named = [c for c in evidence['commands'] if path.search(c)]
+        if named:
+            found['outside_access'] = [c[:300] for c in named[:5]]
+    return found
+
+
 def run_trial(job, context):
     case, host, arm = job['case'], context['adapters'][job['host']], job['arm']
     directory = context['work'] / 'trials' / secrets.token_hex(4)  # Neutral, agent-visible path.
@@ -113,6 +132,7 @@ def run_trial(job, context):
                   cost_usd=evidence['cost_usd'], commands=len(evidence['commands']),
                   delegations=evidence['delegations'], delegation_traces=evidence['delegation_traces'],
                   skills=sorted(set(evidence['skills']))[:20])
+    record.update(isolation_findings(host, trial, evidence))
     if process.get('kill_failed'):  # Leaked processes must be visible, never silent.
         record['kill_failed'] = process['kill_failed']
     if status == 'completed':

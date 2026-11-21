@@ -1,7 +1,8 @@
 """Contract tests that every registered host adapter must pass.
 
 Each adapter needs recorded traces in `src/seatrial/hosts/samples/<host>/`: `<name>.jsonl`
-and `<name>.expected.json`, which lists evidence values and the expected status.
+and `<name>.expected.json`, which lists evidence values and the expected status. Optional
+keys: `foreign_skills` and `unknown_skills` (provenance) and `trial_project` (the project path).
 """
 import json
 import os
@@ -22,8 +23,8 @@ from seatrial.ports import GIT_IDENTITY, HostAdapter, Trial, validate_evidence
 SAMPLES = Path(hosts.__file__).parent / 'samples'
 
 
-def trial(directory, prompt='Check the change.'):
-    return Trial(directory, Path('/project'), Path('/plugin'), prompt, 'model-x', 'low', 60)
+def trial(directory, prompt='Check the change.', project='/project'):
+    return Trial(directory, Path(project), Path('/plugin'), prompt, 'model-x', 'low', 60)
 
 
 class HostContractTests(ProjectCase, unittest.TestCase):
@@ -46,8 +47,10 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                 expected = json.loads((sample.parent / (sample.stem + '.expected.json')).read_text())
                 status = expected.pop('status')
                 foreign = expected.pop('foreign_skills', None)
+                unknown = expected.pop('unknown_skills', [])
+                project = expected.pop('trial_project', '/project')
                 with self.subTest(host=name, sample=sample.name), tempfile.TemporaryDirectory() as tmp:
-                    t = trial(Path(tmp))
+                    t = trial(Path(tmp), project=project)
                     shutil.copy(sample, t.trace)
                     evidence = adapter.collect(t)
                     self.assertEqual(validate_evidence(evidence), [])
@@ -55,6 +58,7 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                         self.assertEqual(evidence[key], value, key)
                     if foreign is not None:
                         self.assertEqual(adapter.foreign_skills(t, evidence), foreign)
+                    self.assertEqual(adapter.unknown_skills(t, evidence), unknown)
                     process = {'exit': 0 if status in ('completed', 'trace_incomplete') else 1,
                                'started': 0, 'ended': 1}
                     self.assertEqual(adapter.classify(process, evidence, ''), status)

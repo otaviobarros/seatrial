@@ -83,6 +83,9 @@ def isolation_findings(host, trial, evidence):
     foreign = host.foreign_skills(trial, evidence)
     if foreign:
         found['foreign_skills'] = sorted(set(foreign))[:10]
+    unknown = host.unknown_skills(trial, evidence)
+    if unknown:
+        found['unknown_skills'] = sorted(set(unknown))[:10]
     root = config.current().root
     if root not in Path(trial.directory).resolve().parents:
         path = re.compile(re.escape(str(root)) + r'(?![\w.-])')
@@ -213,8 +216,8 @@ def execute(cases, hosts, revisions, options, on_record=None):
                 on_record(record, len(records), len(jobs))
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=options['jobs'])
-    futures = [pool.submit(worker, job) for job in jobs]
     try:
+        futures = [pool.submit(worker, job) for job in jobs]  # Ctrl-C here is cancelled like one below.
         for future in futures:
             future.result()
     except BaseException:

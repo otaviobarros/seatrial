@@ -115,16 +115,58 @@ def evaluation_inputs(cfg):
     return found
 
 
+def _overlaps(path, roots):
+    """True when path, with links resolved, is, contains, or lies inside one of the real roots."""
+    real = Path(os.path.realpath(path))
+    return any(real == r or r in real.parents or real in r.parents for r in roots)
+
+
 def _mount_filter(root, excluded):
-    """copytree ignore function: skip caches, Git metadata, and evaluation inputs."""
+    """copytree ignore function: skip caches, Git metadata, evaluation inputs, and links to them."""
     patterns = shutil.ignore_patterns(*IGNORE)
     root, excluded = Path(root), set(excluded)
+    real = [Path(os.path.realpath(root / rel)) for rel in excluded]
 
     def ignore(directory, names):
         skipped = set(patterns(directory, names))
         rel = Path(directory).relative_to(root)
-        return skipped | {n for n in names if n == '.git' or rel / n in excluded}
+        for name in names:
+            entry = Path(directory) / name
+            if name == '.git' or rel / name in excluded:
+                skipped.add(name)
+            elif entry.is_symlink() and _overlaps(entry, real):  # An alias would copy the inputs.
+                skipped.add(name)
+            elif not entry.is_symlink() and any(Path(os.path.realpath(entry)) == r for r in real):
+                skipped.add(name)  # Reached through a followed link.
+        return skipped
     return ignore
+
+
+def _remove_excluded(target, excluded, source_root):
+    """Delete evaluation inputs from an extracted mount without following any link.
+
+    A link on the way to an input is removed, never traversed; a link elsewhere in the
+    mount that points at an input, in the mount or in the source tree, is removed too."""
+    for rel in excluded:
+        path = target
+        for part in rel.parts:
+            path = path / part
+            if path.is_symlink():
+                path.unlink()
+                break
+            if not path.exists():
+                break
+        else:
+            shutil.rmtree(path) if path.is_dir() else path.unlink()
+    roots = [Path(os.path.realpath(source_root / rel)) for rel in excluded]
+    roots += [Path(os.path.realpath(target)) / rel for rel in excluded]
+    for directory, dirs, files in os.walk(target):
+        for name in dirs + files:
+            entry = Path(directory) / name
+            if entry.is_symlink() and _overlaps(entry, roots):
+                entry.unlink()
+                if name in dirs:
+                    dirs.remove(name)
 
 
 def mount(revision, dest):
@@ -145,15 +187,10 @@ def mount(revision, dest):
                                  check=True, capture_output=True).stdout
         depth = 0 if rel == '.' else len(Path(rel).parts)
         subprocess.run(['tar', '-x', '-C', str(target), f'--strip-components={depth}'], input=archive, check=True)
-        for rel in excluded:
-            path = target / rel
-            if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)
-            elif path.exists() or path.is_symlink():
-                path.unlink()
+        _remove_excluded(target, excluded, cfg.skills)
     for rel in excluded:  # An emptied parent such as `evals/` still names the evaluation.
         for parent in (target / rel).parents:
-            if parent == target or not parent.is_relative_to(target):
+            if parent == target or not parent.is_relative_to(target) or parent.is_symlink():
                 break
             if parent.is_dir() and not any(parent.iterdir()):
                 parent.rmdir()

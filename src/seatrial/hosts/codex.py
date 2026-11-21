@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 
@@ -85,21 +86,16 @@ class Codex(HostAdapter):
             evidence['commands'] += children['commands']
             evidence['file_changes'] += children['file_changes']
             evidence['skills'] += children['skills']
+            evidence['skill_reads'] = evidence.get('skill_reads', []) + children['skill_reads']
         return evidence
 
     def foreign_skills(self, trial, evidence):
-        """SKILL.md reads outside the installed plugin; relative paths start at the project."""
-        roots = [(trial.project / '.agents').resolve(), Path(trial.plugin).resolve()]
-        foreign = []
-        for skill in evidence['skills']:
-            if skill.startswith('~'):  # HOME is private and empty: never the installed plugin.
-                foreign.append(skill)
-                continue
-            path = Path(skill)
-            path = (path if path.is_absolute() else trial.project / path).resolve()
-            if not any(path == root or root in path.parents for root in roots):
-                foreign.append(skill)
-        return foreign
+        """SKILL.md reads outside the installed plugin."""
+        return [read['path'] for read in _reads(evidence) if _origin(trial, read) == 'foreign']
+
+    def unknown_skills(self, trial, evidence):
+        """SKILL.md reads by a relative path from a directory the trace does not establish."""
+        return [read['path'] for read in _reads(evidence) if _origin(trial, read) == 'unknown']
 
     def release(self, trial, lock):
         """Carry a refreshed login back only when the shared file is still the one we copied."""
@@ -127,10 +123,81 @@ class Codex(HostAdapter):
 
 
 SKILL_FILE = re.compile(r'[\w./~-]*SKILL\.md')
+SEPARATOR = re.compile(r'[;&|()]+')
+SHELLS = {'sh', 'bash', 'zsh', 'dash'}
 
 
-def _skill_reads(command):
-    return SKILL_FILE.findall(command)
+def _script(command):
+    """The shell script a command runs: the argument after -c or -lc, else the command itself."""
+    try:
+        words = list(command) if isinstance(command, list) else shlex.split(command)
+    except ValueError:
+        return None
+    for index, word in enumerate(words[:-1]):
+        if Path(words[0]).name in SHELLS and word.startswith('-') and word.endswith('c'):
+            return words[index + 1]
+    return ' '.join(shlex.quote(w) for w in words)
+
+
+def _skill_reads(command, cwd='.'):
+    """SKILL.md paths a command reads, each with the directory it was read from.
+
+    Quoted paths keep their spaces. A `cd` in the script moves the directory; a `cd`
+    whose target the trace cannot show makes the directory None."""
+    script = _script(command)
+    if script is None:  # Unbalanced quotes: keep the paths, but not where they were read.
+        return [{'path': p, 'cwd': None} for p in SKILL_FILE.findall(str(command))]
+    lexer = shlex.shlex(script, posix=True, punctuation_chars=';&|()')
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return [{'path': p, 'cwd': None} for p in SKILL_FILE.findall(script)]
+    reads, stack, start = [], [], True
+    for index, token in enumerate(tokens):
+        if SEPARATOR.fullmatch(token):
+            if '(' in token:
+                stack.append(cwd)
+            if ')' in token and stack:
+                cwd = stack.pop()
+            start = True
+            continue
+        if start and token in ('cd', 'pushd'):
+            target = tokens[index + 1] if index + 1 < len(tokens) else None
+            literal = target and not SEPARATOR.fullmatch(target) and not re.search(r'[$`*?]|^[~-]', target)
+            cwd = (str(Path(cwd) / target) if cwd is not None else None) if literal else None
+        elif 'SKILL.md' in token:
+            path = token[:token.rindex('SKILL.md') + len('SKILL.md')].rsplit('=', 1)[-1]
+            reads.append({'path': path, 'cwd': cwd})
+        start = False
+    return reads
+
+
+def _reads(evidence):
+    """Recorded reads; evidence saved before directories were kept reads from the project."""
+    if 'skill_reads' in evidence:
+        return evidence['skill_reads']
+    return [{'path': p, 'cwd': '.'} for p in evidence['skills']]
+
+
+def _origin(trial, read):
+    """'installed', 'foreign', or 'unknown' for one SKILL.md read."""
+    if read['path'].startswith('~'):  # HOME is private and empty: never the installed plugin.
+        return 'foreign'
+    path = Path(read['path'])
+    if not path.is_absolute():
+        if read['cwd'] is None:
+            return 'unknown'
+        path = trial.project / read['cwd'] / path
+    path = Path(os.path.normpath(path)).resolve()
+    roots = [(trial.project / '.agents').resolve(), Path(trial.plugin).resolve()]
+    return 'installed' if any(path == r or r in path.parents for r in roots) else 'foreign'
+
+
+def _add_reads(out, command, cwd):
+    reads = _skill_reads(command, cwd if isinstance(cwd, str) and cwd else '.')
+    out['skills'] += [r['path'] for r in reads]
+    out.setdefault('skill_reads', []).extend(reads)
 
 
 def parse_stream(path):
@@ -156,7 +223,7 @@ def parse_stream(path):
             if item.get('type') == 'command_execution':
                 command = str(item.get('command', ''))
                 out['commands'].append(command)
-                out['skills'] += _skill_reads(command)
+                _add_reads(out, item.get('command', ''), item.get('cwd'))
             elif item.get('type') == 'file_change':
                 out['file_changes'] += [str(c.get('path', '')) for c in item.get('changes') or []
                                         if isinstance(c, dict)]
@@ -173,7 +240,7 @@ def parse_stream(path):
 
 def child_traces(codex_home):
     """Commands and file edits from delegated sessions in a private CODEX_HOME."""
-    commands, changes, skills, sessions = [], [], [], 0
+    commands, changes, sessions, found_reads = [], [], 0, {'skills': [], 'skill_reads': []}
     for rollout in sorted(Path(codex_home).glob('sessions/**/*.jsonl')):
         lines = rollout.read_text(errors='replace').splitlines()
         if not lines or '"parent_thread_id"' not in lines[0]:
@@ -191,13 +258,13 @@ def child_traces(codex_home):
             if command:
                 text = ' '.join(command) if isinstance(command, list) else str(command)
                 commands.append(text)
-                skills += _skill_reads(text)
+                _add_reads(found_reads, command, item.get('cwd'))
             found = item.get('changes')
             if isinstance(found, dict):
                 changes += [str(p) for p in found]
             elif isinstance(found, list):
                 changes += [str(c.get('path', '')) for c in found if isinstance(c, dict)]
-    return {'sessions': sessions, 'commands': commands, 'file_changes': changes, 'skills': skills}
+    return {'sessions': sessions, 'commands': commands, 'file_changes': changes, **found_reads}
 
 
 ADAPTER = Codex()

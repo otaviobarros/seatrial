@@ -59,7 +59,7 @@ def summarize_arm(case, records):
             'commands_mean': _mean([r['commands'] for r in valid if r.get('commands') is not None]),
             'final_words_mean': _mean([r['final_words'] for r in valid if 'final_words' in r]),
             'cost_usd_total': round(sum(costs), 4) if costs else None,
-            'isolation_warnings': sum(1 for r in records if r.get('foreign_skills') or r.get('outside_access'))}
+            'isolation_warnings': sum(1 for r in records if r.get('foreign_skills') or r.get('unknown_skills') or r.get('outside_access'))}
 
 
 def summarize(meta, records, cases):
@@ -109,7 +109,7 @@ def markdown(summary):
                     failures.append(f'- {case_id} {host} {arm}: invalid trials {invalid}')
                 if s.get('isolation_warnings'):
                     failures.append(f"- {case_id} {host} {arm}: {s['isolation_warnings']} trials used skills "
-                                    'from outside the plugin or named the project path')
+                                    'from outside the plugin or of unknown source, or named the project path')
     return '\n'.join(lines + ([''] + failures if failures else []))
 
 
@@ -134,7 +134,7 @@ def terminal(summary):
                     notes.append(ui.warn(f'{case_id} {host} {arm}: invalid trials {invalid}'))
                 if s.get('isolation_warnings'):
                     notes.append(ui.warn(f"{case_id} {host} {arm}: {s['isolation_warnings']} trials used skills "
-                                         'from outside the plugin or named the project path'))
+                                         'from outside the plugin or of unknown source, or named the project path'))
             if decision.get('reason'):
                 notes.append(ui.info(f"{case_id} {host}: {decision['reason']}"))
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD', 'Verdict'], rows)

@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import concurrent.futures
 import tempfile
 import threading
 import time
@@ -208,6 +209,40 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         with mock.patch.object(runner, 'run_trial', trial), self.assertRaises(KeyboardInterrupt):
             runner.execute(chosen, ['fake'], {'run': 'WORKTREE'}, options)
         self.assertEqual(len(calls), 2)  # Two of four planned trials started; the queued two never did.
+        work = next(self.cfg.state.iterdir())
+        records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        self.assertEqual([r['status'] for r in records], ['completed'])
+
+    def test_interrupt_during_submission_cancels_queued_trials(self):
+        calls, running = [], threading.Event()
+        Pool = concurrent.futures.ThreadPoolExecutor
+
+        class InterruptedPool(Pool):
+            submitted = 0
+
+            def submit(self, *args, **kwargs):
+                InterruptedPool.submitted += 1
+                if InterruptedPool.submitted == 3:  # Ctrl-C on the main thread: one trial runs, one waits.
+                    running.wait(5)
+                    raise KeyboardInterrupt
+                return super().submit(*args, **kwargs)
+
+        def trial(job, context):
+            calls.append(job)
+            running.set()
+            time.sleep(0.3)
+            return {'case_id': job['case'].id, 'case_version': 1, 'host': job['host'], 'arm': job['arm'],
+                    'trial_index': job['index'], 'status': 'completed', 'wall_s': 0.3}
+
+        chosen = list(cases.discover().values())
+        options = {'n': 2, 'jobs': 1, 'models': {'fake': 'fake-model'}, 'effort': None, 'timeout': None,
+                   'budget_usd': None, 'max_minutes': 10, 'max_cost_usd': None}
+        with mock.patch.object(runner, 'run_trial', trial), \
+                mock.patch.object(concurrent.futures, 'ThreadPoolExecutor', InterruptedPool), \
+                self.assertRaises(KeyboardInterrupt):
+            runner.execute(chosen, ['fake'], {'run': 'WORKTREE'}, options)
+        time.sleep(0.8)  # Long enough for an uncancelled queued trial to start after the interrupt.
+        self.assertEqual(len(calls), 1)  # The queued second trial never started.
         work = next(self.cfg.state.iterdir())
         records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
         self.assertEqual([r['status'] for r in records], ['completed'])

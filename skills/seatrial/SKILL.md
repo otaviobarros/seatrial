@@ -84,7 +84,8 @@ Ten trials detect a change of about 50 percentage points. With 3 trials
 3. Report trials with a status other than `completed` apart from failures; they
    are not graded.
 4. Report `isolation_warnings`: those trials loaded skills from outside the
-   plugin or named the project path, so their results may not measure the skill.
+   plugin or from an unknown source, or named the project path, so their results
+   may not measure the skill.
 5. Read a sample of `session.jsonl` traces under `run_dir/trials/` before you
    explain why a trial failed.
 6. A grader fix needs no new host calls: `seatrial regrade latest --json`.

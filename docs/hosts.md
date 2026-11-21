@@ -48,8 +48,9 @@ trial:
   `pass_env` patterns, and `[run] pass_env`, and gives Git only repository config and
   a fixed identity. Name the CLI's own variables, such as `OPENAI_*`, in `pass_env`.
 - Override `foreign_skills(trial, evidence)` to return skills that did not come from
-  the plugin. The runner records them, and every command that names the project path,
-  on the trial as `foreign_skills` and `outside_access`.
+  the plugin, and `unknown_skills(trial, evidence)` to return skills whose source the
+  trace cannot establish. The runner records them, and every command that names the
+  project path, on the trial as `foreign_skills`, `unknown_skills`, and `outside_access`.
 - Claude Code: with `ANTHROPIC_API_KEY` set, each trial gets its own
   `CLAUDE_CONFIG_DIR`. A subscription login lives in the user's config, so those
   trials keep it, and `doctor` warns when user-level skills exist.

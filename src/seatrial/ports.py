@@ -10,6 +10,7 @@ calls the methods in this order for every trial:
   ... the runner launches the command and waits ...
   collect(trial)                parse the traces into an Evidence dict
   foreign_skills(trial, evidence)  skills that did not come from the plugin
+  unknown_skills(trial, evidence)  skills whose source the trace cannot establish
   release(trial, lock)          remove private state; never keep a copied login
 
 To add a host, define an `ADAPTER` object that subclasses `HostAdapter` in a module
@@ -159,6 +160,10 @@ class HostAdapter:
 
     def foreign_skills(self, trial, evidence):
         """Skills in the evidence that did not come from the mounted plugin."""
+        return []
+
+    def unknown_skills(self, trial, evidence):
+        """Skills in the evidence whose source the trace cannot establish."""
         return []
 
     def release(self, trial, lock):

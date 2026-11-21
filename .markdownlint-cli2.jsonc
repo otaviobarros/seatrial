@@ -1,0 +1,9 @@
+{
+  "config": {
+    "default": true,
+    // Prose, commands, and tables use lines longer than 80 characters.
+    "MD013": false,
+    // Tables mix compact cells with unpadded delimiter rows.
+    "MD060": false
+  }
+}

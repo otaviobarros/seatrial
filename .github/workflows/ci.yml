@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.14"]
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Run unit tests
+        run: make test
+
+  package:
+    name: Install and run the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Install into a clean virtual environment
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet .
+
+      # Run outside the checkout so the installed package, not src/, is under test.
+      - name: Initialize a sample project and plan a dry run
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/venv/bin:$PATH"
+          seatrial --version
+          mkdir -p sample/skills/greet && cd sample
+          git init --quiet
+          printf -- '---\nname: greet\ndescription: Greets the user.\n---\n' > skills/greet/SKILL.md
+          seatrial init --yes --json
+          seatrial doctor --no-probe --json
+          seatrial run --dry-run --json > plan.json
+          python -c 'import json; plan = json.load(open("plan.json")); assert plan["count"] > 0, plan'
+          python -c 'import pathlib, seatrial.hosts as h; assert any(pathlib.Path(h.__file__).parent.glob("samples/*/*.jsonl"))'
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+        with:
+          globs: "**/*.md"
+
+      - name: Check whitespace
+        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD

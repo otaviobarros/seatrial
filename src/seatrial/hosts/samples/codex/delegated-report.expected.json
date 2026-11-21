@@ -1,0 +1,4 @@
+{"commands": ["/bin/zsh -lc 'cat .agents/skills/verify-change/SKILL.md'", "/bin/zsh -lc 'make check'"],
+ "file_changes": [".scratch/verification.json"], "skills": [".agents/skills/verify-change/SKILL.md"],
+ "final_message": "Final report: AC-1 pass, AC-2 fail.", "delegations": 1, "delegation_traces": 0,
+ "errors": [], "terminal": true, "status": "trace_incomplete"}

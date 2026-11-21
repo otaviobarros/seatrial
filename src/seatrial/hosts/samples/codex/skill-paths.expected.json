@@ -1,0 +1,18 @@
+{
+ "trial_project": "/work/my project",
+ "skills": [
+  "/work/my project/.agents/skills/demo/SKILL.md",
+  "demo/SKILL.md",
+  ".agents/skills/demo/SKILL.md",
+  "notes/SKILL.md"
+ ],
+ "foreign_skills": [
+  ".agents/skills/demo/SKILL.md"
+ ],
+ "unknown_skills": [
+  "notes/SKILL.md"
+ ],
+ "final_message": "Done.",
+ "terminal": true,
+ "status": "completed"
+}

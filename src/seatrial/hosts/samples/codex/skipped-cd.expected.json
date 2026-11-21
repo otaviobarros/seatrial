@@ -1,0 +1,12 @@
+{
+ "skills": [
+  "demo/SKILL.md"
+ ],
+ "foreign_skills": [],
+ "unknown_skills": [
+  "demo/SKILL.md"
+ ],
+ "final_message": "Done.",
+ "terminal": true,
+ "status": "completed"
+}

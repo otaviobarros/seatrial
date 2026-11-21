@@ -1,0 +1,11 @@
+{"type":"thread.started","thread_id":"t-parent"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"Reading the skill."}}
+{"type":"item.started","item":{"id":"i1","type":"command_execution","command":"/bin/zsh -lc 'cat .agents/skills/verify-change/SKILL.md'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"/bin/zsh -lc 'cat .agents/skills/verify-change/SKILL.md'","aggregated_output":"---","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"i2","type":"command_execution","command":"/bin/zsh -lc 'make check'","aggregated_output":"OK","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"i3","type":"file_change","changes":[{"path":".scratch/verification.json","kind":"add"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"i4","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"t-parent","receiver_thread_ids":[],"prompt":"Review","agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"i5","type":"collab_tool_call","tool":"wait","sender_thread_id":"t-parent","receiver_thread_ids":["t-child"],"prompt":null,"agents_states":{},"status":"completed"}}
+{"type":"item.completed","item":{"id":"i6","type":"agent_message","text":"Final report: AC-1 pass, AC-2 fail."}}
+{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":200,"reasoning_output_tokens":20}}

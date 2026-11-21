@@ -24,6 +24,9 @@ def init_repo(project, branch='main'):
     git(project, 'init', '--quiet', f'--initial-branch={branch}')
     git(project, 'config', 'user.name', GIT_IDENTITY[0])
     git(project, 'config', 'user.email', GIT_IDENTITY[1])
+    # Background maintenance can hold a lock while the project is being removed.
+    git(project, 'config', 'maintenance.auto', 'false')
+    git(project, 'config', 'gc.auto', '0')
 
 
 def copy_fixture(source, project, skip=()):

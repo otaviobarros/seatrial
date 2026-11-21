@@ -39,6 +39,27 @@ skills at one revision, runs the agent in an isolated folder, collects what it
 did, and passes that evidence to `grade()`. Repeating each trial turns one lucky
 run into a pass rate.
 
+## How seatrial compares
+
+Other tools evaluate agents too. This table reflects their public documentation
+in November 2026.
+
+| | seatrial | [`claude plugin eval`](https://code.claude.com/docs/en/plugin-evals) | [promptfoo](https://www.promptfoo.dev/docs/guides/test-agent-skills/) | [Inspect](https://inspect.aisi.org.uk) + [inspect_swe](https://meridianlabs-ai.github.io/inspect_swe) |
+|---|---|---|---|---|
+| Agents | Claude Code and Codex CLIs; others through an adapter | Claude Code | Claude Agent SDK, Codex SDK, OpenCode SDK | Claude Code and Codex CLI as Inspect agents, with any model |
+| Compares | Two Git revisions of your skills, including uncommitted edits | The plugin loaded against no plugin | Skill versions in separate fixture folders, side by side | Models and agents on a task set |
+| Grading | Your Python code over files, Git state, commands, and the final message | Regex, tool use, and file checks, plus model-judged rubrics | Assertions such as skill used, custom JavaScript, plus model-graded | Code or model scorers |
+| Statistics | Fisher exact test per assertion, and a verdict per case and host | Three runs per case by default, mean scores against a threshold | `--repeat`; no significance test | Metrics such as accuracy and standard error |
+| Isolation | Fresh Git project per trial, filtered environment, flags skills from outside the plugin | Fresh home, working folder, and config per run | A `working_dir` per provider | Docker sandbox |
+| Runtime | Python 3.11+ standard library; no dependencies | Built into Claude Code 2.1.269+ | Node and the agent SDK packages | Python packages; Docker for the sandbox |
+
+Choose seatrial to answer "did this skill edit make the agent better or worse"
+on the real CLIs, with code-graded cases and a statistical verdict. Choose
+`claude plugin eval` to check that a plugin helps compared with no plugin, inside
+Claude Code. Choose promptfoo when your evals already live in promptfoo or need
+model-graded rubrics. Choose Inspect for benchmark-scale runs in sandboxes or
+across many models.
+
 ## Install
 
 Run it with [uv](https://docs.astral.sh/uv/). `uvx` builds the package into a cached,

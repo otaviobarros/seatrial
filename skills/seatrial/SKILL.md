@@ -13,7 +13,7 @@ case, evidence, verdict, and exit-code contract.
 ## Invoke
 
 Use `seatrial` when it is on PATH. Otherwise run
-`uvx --from git+https://github.com/otaviobarros/seatrial seatrial`. Pass `--json`
+`uvx seatrial`. Pass `--json`
 to every command and read the exit code:
 
 | Code | Meaning |

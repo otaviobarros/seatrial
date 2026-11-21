@@ -13,3 +13,6 @@ disposable project.
 - Keep `cli.py` output and exit codes in step with [agents](docs/agents.md) and
   `command_schema`; agents parse them.
 - Keep the command table in [README.md](README.md) in step with `build_parser`.
+- Write Conventional Commit subjects for users: release-please turns `feat`, `fix`,
+  and breaking-change subjects into `CHANGELOG.md` and the next version. Release by
+  merging the release PR; it owns the version in `pyproject.toml` and `__init__.py`.

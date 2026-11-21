@@ -34,6 +34,22 @@ shared modules and fixtures. They are never discovered as cases.
 | `project` | No | The project folder name the agent sees; default `project` |
 | `timeout` | No | Seconds per trial |
 | `shared` | No | Paths to shared modules or fixture folders inside the case root |
+| `holdout` | No | `true` keeps the case out of tuning; see [held-out cases](#held-out-cases) |
+
+## Held-out cases
+
+A skill tuned until its own cases pass can overfit those cases. Mark a few cases
+`holdout = true` and leave them alone while you edit the skill. `run` and
+`compare` skip them, and naming one with `--case` is a usage error. When the edit
+is done, measure them once:
+
+```sh
+seatrial compare --base main --holdout
+```
+
+`list` shows every case and marks held-out ones. Summaries carry `holdout` per
+case. A held-out case that you change or debug against stops being held out;
+replace it with a new one.
 
 ## case.py
 

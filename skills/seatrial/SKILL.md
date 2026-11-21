@@ -47,8 +47,10 @@ A case checks one behavior of one skill in a fictional project.
    and the final message in `evidence`. Use the helpers in `seatrial.checks`.
 4. Mark an assertion `zero` when one failure is a regression; mark it `rate` when
    a pass rate is the measure. Name the main one in `primary`.
-5. Check the case without model calls: `seatrial list --json` and
-   `seatrial run --case ID --dry-run --json`.
+5. Set `holdout = true` on cases the user wants kept out of tuning. Leave a
+   held-out case unread and unrun while you edit the skill.
+6. Check the case without model calls: `seatrial list --json` and
+   `seatrial run --case ID --dry-run --json`, plus `--holdout` for a held-out case.
 
 ## Run and compare
 
@@ -61,6 +63,7 @@ user asked for it, with a budget the user set or approved.
    itself.
 3. Measure one revision with `seatrial run`. Measure a skill edit with
    `seatrial compare --base REV`; `--head` defaults to the uncommitted worktree.
+   Held-out cases run only with `--holdout`; run them once, after the edit is final.
 4. Exit 1 means finished trials are kept. Report the reason; rerun only with the
    user's approval.
 

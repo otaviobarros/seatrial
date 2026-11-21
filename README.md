@@ -161,7 +161,9 @@ as a whole skill folder; trials alternate between revisions so that time and loa
 affect both alike.
 
 Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
-`--suite capability|regression`, `--host NAME`.
+`--suite capability|regression`, `--host NAME`. Cases marked `holdout = true` run
+only with `--holdout`, so you can tune a skill on some cases and check it on
+others; see [held-out cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#held-out-cases).
 
 <details>
 <summary>Options, defaults, and limits</summary>

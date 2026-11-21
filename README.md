@@ -33,6 +33,9 @@ takes the skill out on a fixed course, many times, and records what happened.
   <img alt="Diagram of one trial in five steps: case, mount, agent, evidence, grade. The trial repeats n times per case, host, and revision, and the results go to summary.json." src="docs/images/how-it-works-light.svg">
 </picture>
 
+<details>
+<summary>The five steps in text</summary>
+
 Each trial runs these steps:
 
 1. **Case.** `build()` in the case's `case.py` writes a small fictional project
@@ -45,6 +48,8 @@ Each trial runs these steps:
    final message in `evidence.json`.
 5. **Grade.** `grade()` checks that evidence and the project, and returns pass or
    fail for each assertion in `case.toml`.
+
+</details>
 
 seatrial repeats each trial n times per case, host, and revision, and writes the
 pass rates and verdicts to `summary.json`. Repetition turns one lucky run into a
@@ -156,6 +161,9 @@ affect both alike.
 Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
 `--suite capability|regression`, `--host NAME`.
 
+<details>
+<summary>Options, defaults, and limits</summary>
+
 | Option | Default | Maximum |
 |---|---|---|
 | `--n` trials per case, host, and revision | `[run] n`, 3 | `[limits] max_n`, 10 |
@@ -165,6 +173,8 @@ Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
 | `--timeout` seconds per trial | case value, else `[run] timeout`, 180 | `max_timeout`, 600 |
 | `--max-cost-usd` total host-reported cost | none | none |
 | `--budget-usd` per-trial cap (Claude only) | none | none |
+
+</details>
 
 A usage-limit or authentication error stops the run. Finished trials are kept,
 and the command exits 1.
@@ -202,12 +212,17 @@ Each invocation writes a run directory under `[run] state_dir` (default
 the end of the run. Keep it out of version control. Projects can share a state
 directory: `runs`, `report latest`, and `regrade` show only the current project's runs.
 
+<details>
+<summary>Files in a run directory</summary>
+
 | File | Content |
 |---|---|
 | `run.json` | The run settings and revisions, written before the first trial |
 | `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills` and `outside_access` mark trials that used skills from outside the plugin or named the project path |
 | `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
+
+</details>
 
 Trial directories use random names so that no path the agent sees names the
 evaluation. Private host state, including any copied login, is removed after each

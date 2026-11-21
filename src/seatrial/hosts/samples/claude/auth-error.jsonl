@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init"}
+{"type":"result","subtype":"success","is_error":true,"api_error_status":401,"result":"Not logged in. Please run /login","num_turns":1,"total_cost_usd":0}

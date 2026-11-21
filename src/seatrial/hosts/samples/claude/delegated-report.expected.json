@@ -1,0 +1,4 @@
+{"commands": ["make check", "git diff"], "file_changes": [".scratch/verification.json", "notes.md"],
+ "skills": ["demo-plugin:verify-change", "/plugin/skills/verify-change/SKILL.md"],
+ "final_message": "Final report: AC-1 pass, AC-2 fail.", "delegations": 1, "delegation_traces": 1,
+ "cost_usd": 0.019, "errors": [], "terminal": true, "status": "completed"}

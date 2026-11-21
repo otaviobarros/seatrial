@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seatrial"
+version = "0.1.0"
+description = "Run evaluation cases for agent skills on agent CLIs and compare skill revisions."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+keywords = ["agents", "skills", "evaluation", "claude", "codex"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: Console",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.scripts]
+seatrial = "seatrial.cli:entry"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"seatrial.hosts" = ["samples/**/*"]

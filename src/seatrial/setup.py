@@ -143,8 +143,10 @@ def new_case(cfg, skill, case_id, summary=None, example=False):
     return [str(directory / name) for name in ('case.toml', 'case.py', 'fixture/README.md')]
 
 
-def doctor(cfg=None, probe_hosts=True):
-    """Run environment checks. Each result is {check, level, detail}; level is ok, warn, or fail."""
+def doctor(cfg=None, probe_hosts=True, path=None):
+    """Run environment checks. Each result is {check, level, detail}; level is ok, warn, or fail.
+
+    Without cfg, load path, else the configuration found from the working directory."""
     results = []
 
     def add(check, level, detail):
@@ -154,7 +156,7 @@ def doctor(cfg=None, probe_hosts=True):
     git = shutil.which('git')
     add('git', 'ok' if git else 'fail', git or 'git is not on PATH')
     if cfg is None:
-        path = config.find()
+        path = path or config.find()
         if path is None:
             add('config', 'fail', f'no {config.FILENAME} here or above; run `seatrial init`')
             return results

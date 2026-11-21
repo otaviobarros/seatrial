@@ -436,7 +436,9 @@ def command_init(parser, args):
 
 
 def command_doctor(parser, args):
-    results = setup.doctor(config.active(), probe_hosts=not args.no_probe)
+    # An explicit --config is checked as given; never fall back to a configuration found here.
+    cfg = None if args.config else config.active()
+    results = setup.doctor(cfg, probe_hosts=not args.no_probe, path=args.config)
     if args.json:
         print(setup.doctor_json(results))
     else:

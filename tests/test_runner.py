@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -185,6 +187,45 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertEqual([r['status'] for r in records], ['auth_error'])
         self.assertNotIn('pass', records[0])
         self.assertIn('invalid trials', out)
+
+    def test_interrupt_cancels_queued_trials_and_keeps_finished_records(self):
+        calls, lock, both = [], threading.Lock(), threading.Barrier(2, timeout=5)
+
+        def trial(job, context):
+            with lock:
+                calls.append(job)
+                first = len(calls) == 1
+            both.wait()  # Both workers hold a trial before the interrupt.
+            if first:
+                raise KeyboardInterrupt  # Ctrl-C reaches this worker while the other trial runs.
+            time.sleep(0.3)
+            return {'case_id': job['case'].id, 'case_version': 1, 'host': job['host'], 'arm': job['arm'],
+                    'trial_index': job['index'], 'status': 'completed', 'wall_s': 0.3}
+
+        chosen = list(cases.discover().values())
+        options = {'n': 2, 'jobs': 2, 'models': {'fake': 'fake-model'}, 'effort': None, 'timeout': None,
+                   'budget_usd': None, 'max_minutes': 10, 'max_cost_usd': None}
+        with mock.patch.object(runner, 'run_trial', trial), self.assertRaises(KeyboardInterrupt):
+            runner.execute(chosen, ['fake'], {'run': 'WORKTREE'}, options)
+        self.assertEqual(len(calls), 2)  # Two of four planned trials started; the queued two never did.
+        work = next(self.cfg.state.iterdir())
+        records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        self.assertEqual([r['status'] for r in records], ['completed'])
+
+    def test_regrade_rejects_edited_evidence(self):
+        ok, out = self.cli('run', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        self.assertTrue(ok, out)
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        record = json.loads((work / 'records.jsonl').read_text())
+        saved = Path(record['trial_dir']) / 'evidence.json'
+        evidence = json.loads(saved.read_text())
+        evidence['final_message'] = 'edited while inspecting'
+        saved.write_text(json.dumps(evidence) + '\n')
+        self.cli('regrade', str(work))
+        regraded = json.loads((work / 'records-regraded.jsonl').read_text())
+        self.assertEqual(regraded['status'], 'stale')
+        self.assertIn('evidence.json', regraded['errors'][0])
+        self.assertNotIn('pass', regraded)
 
     def test_regrade_rejects_changed_retained_files(self):
         ok, out = self.cli('run', '--skill', 'demo', '--host', 'fake', '--n', '1')

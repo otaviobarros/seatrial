@@ -243,7 +243,7 @@ Only `completed` trials are graded. Other statuses are excluded from pass rates:
 | `timeout`, `host_stall` | The time cap ended the trial; `host_stall` means the machine paused |
 | `incomplete` | The host exited without a successful final turn |
 | `harness_error` | seatrial failed; the record holds the exception |
-| `stale` | From `regrade` only: the retained files changed after the trial |
+| `stale` | From `regrade` only: the retained project files or `evidence.json` changed after the trial |
 
 </details>
 

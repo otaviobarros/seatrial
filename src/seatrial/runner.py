@@ -6,6 +6,7 @@ private host state, including any copied login, is removed when the trial ends.
 """
 import concurrent.futures
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -138,7 +139,8 @@ def run_trial(job, context):
     if status == 'completed':
         report.grade(record, case, project, evidence)
         # Regrading must measure this candidate, not a later edit of the retained files.
-        (directory / 'retained.json').write_text(json.dumps(retained(project)) + '\n')
+        (directory / 'retained.json').write_text(json.dumps(
+            {'project': retained(project), 'evidence_sha256': file_sha256(directory / 'evidence.json')}) + '\n')
     else:
         record['errors'] = evidence['errors'][-2:] + ([stderr[-500:]] if stderr.strip() else [])
     return record
@@ -196,6 +198,9 @@ def execute(cases, hosts, revisions, options, on_record=None):
             record = {'case_id': job['case'].id, 'case_version': job['case'].version, 'host': job['host'],
                       'arm': job['arm'], 'trial_index': job['index'], 'status': 'harness_error',
                       'wall_s': None, 'errors': [f'{type(error).__name__}: {error}'[:500]]}
+        except BaseException:  # Ctrl-C or exit: no queued trial may start.
+            stop.set()
+            raise
         if record['status'] in STOP:
             stop.set()
         with lock:
@@ -207,8 +212,17 @@ def execute(cases, hosts, revisions, options, on_record=None):
             if on_record:
                 on_record(record, len(records), len(jobs))
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=options['jobs']) as pool:
-        list(pool.map(worker, jobs))
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=options['jobs'])
+    futures = [pool.submit(worker, job) for job in jobs]
+    try:
+        for future in futures:
+            future.result()
+    except BaseException:
+        # Stop before joining: queued trials are cancelled, a running one finishes and keeps its record.
+        stop.set()
+        pool.shutdown(wait=True, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
     meta = {**started, 'finished': len(records), 'stopped_early': stop.is_set() or len(records) < len(jobs)}
     return meta, records, work
 
@@ -226,6 +240,24 @@ def context_name():
     return active.name if active else None
 
 
+def file_sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).is_file() else None
+
+
+def retained_changes(directory, project):
+    """What changed in a retained trial since grading: project files and the saved evidence."""
+    saved = directory / 'retained.json'
+    if not saved.exists():
+        return ['retained.json is missing']
+    data = json.loads(saved.read_text())
+    if 'project' not in data:
+        return ['retained.json predates evidence digests']
+    changed = delta(data['project'], retained(directory / project))
+    if data.get('evidence_sha256') != file_sha256(directory / 'evidence.json'):
+        changed.append('evidence.json')
+    return changed
+
+
 def regrade(work, cases):
     """Grade retained trials again with the current case code; both arms alike."""
     work = Path(work)
@@ -241,9 +273,7 @@ def regrade(work, cases):
             continue
         case = cases[record['case_id']]
         directory = Path(record['trial_dir'])
-        saved = directory / 'retained.json'
-        changed = (delta(json.loads(saved.read_text()), retained(directory / case.project))
-                   if saved.exists() else ['retained.json is missing'])
+        changed = retained_changes(directory, case.project)
         if changed:  # Invalid, never regraded: the files are no longer the trial's candidate.
             record.update(status='stale', errors=['retained files changed: ' + ', '.join(changed)[:400]])
             for key in ('assertions', 'pass'):

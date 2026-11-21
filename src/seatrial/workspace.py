@@ -96,16 +96,48 @@ def check_revision(revision):
         raise ValueError(f'revision {revision!r} is not a commit in the skills repository') from None
 
 
+def evaluation_inputs(cfg):
+    """Paths under the skills folder that belong to the evaluation, relative to it.
+
+    A plugin rooted at the repository root would otherwise mount its cases, graders,
+    configuration, and run state next to the skill under evaluation."""
+    skills = cfg.skills.resolve()
+    found = []
+    for path in [cfg.cases, cfg.state, cfg.file, *cfg.identity_files, *cfg.python_path]:
+        if path is None:
+            continue
+        try:
+            rel = Path(path).resolve().relative_to(skills)
+        except ValueError:
+            continue
+        if rel.parts:
+            found.append(rel)
+    return found
+
+
+def _mount_filter(root, excluded):
+    """copytree ignore function: skip caches, Git metadata, and evaluation inputs."""
+    patterns = shutil.ignore_patterns(*IGNORE)
+    root, excluded = Path(root), set(excluded)
+
+    def ignore(directory, names):
+        skipped = set(patterns(directory, names))
+        rel = Path(directory).relative_to(root)
+        return skipped | {n for n in names if n == '.git' or rel / n in excluded}
+    return ignore
+
+
 def mount(revision, dest):
-    """Extract the whole skills folder at one revision; never mix files across revisions.
+    """Extract the skills folder at one revision, without evaluation inputs; never mix revisions.
 
     The mount is always plugin-shaped: a `skills` layout is placed under `skills/`
     next to a generated `.claude-plugin/plugin.json`."""
     cfg = config.current()
     identity = resolve(revision)
     target = dest / 'skills' if cfg.layout == 'skills' else dest
+    excluded = evaluation_inputs(cfg)
     if revision == WORKTREE:
-        shutil.copytree(cfg.skills, target, ignore=shutil.ignore_patterns(*IGNORE))
+        shutil.copytree(cfg.skills, target, ignore=_mount_filter(cfg.skills, excluded))
     else:
         top, rel = source()
         target.mkdir(parents=True)
@@ -113,6 +145,18 @@ def mount(revision, dest):
                                  check=True, capture_output=True).stdout
         depth = 0 if rel == '.' else len(Path(rel).parts)
         subprocess.run(['tar', '-x', '-C', str(target), f'--strip-components={depth}'], input=archive, check=True)
+        for rel in excluded:
+            path = target / rel
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+    for rel in excluded:  # An emptied parent such as `evals/` still names the evaluation.
+        for parent in (target / rel).parents:
+            if parent == target or not parent.is_relative_to(target):
+                break
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
     if cfg.layout == 'skills':
         (dest / '.claude-plugin').mkdir(exist_ok=True)
         (dest / '.claude-plugin/plugin.json').write_text(

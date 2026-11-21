@@ -69,7 +69,7 @@ def decide(assertions, primary, base, head, n):
         return {'verdict': 'inconclusive', 'reason': f'fewer than {minimum} valid trials in an arm'}
     nb, nh = base['valid'], head['valid']
     bp, hp = base['assertion_passes'], head['assertion_passes']
-    p = {a: round(fisher(bp[a], nb, hp[a], nh), 3) for a in assertions}
+    p = {a: fisher(bp[a], nb, hp[a], nh) for a in assertions}  # Full precision; round only for display.
     new_zero = [a for a, kind in assertions.items() if kind == 'zero' and hp[a] < nh and bp[a] == nb]
     worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and p[a] < 0.05]
     zero_fail_head = any(hp[a] < nh for a, kind in assertions.items() if kind == 'zero')

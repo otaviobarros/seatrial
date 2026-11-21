@@ -4,11 +4,13 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
 from seatrial import cli, config, setup
 from tests.support import ProjectCase, make_project
+from tests.test_cases import GOOD_TOML, write_case
 
 
 def call(*argv):
@@ -114,6 +116,39 @@ class CommandTests(ProjectCase, unittest.TestCase):
         self.assertTrue(report['ok'])
         checks = {c['check'] for c in report['checks']}
         self.assertTrue({'python', 'git', 'config', 'skills', 'cases', 'revisions', 'state'} <= checks)
+
+    def test_doctor_checks_an_explicit_config_and_never_the_one_found_here(self):
+        previous = os.getcwd()
+        os.chdir(self.root)  # A valid seatrial.toml is found from here.
+        self.addCleanup(os.chdir, previous)
+        broken = self.root / 'broken.toml'
+        broken.write_text('[skills\n')
+        for path in (self.root / 'missing.toml', broken):
+            with self.subTest(path=path.name):
+                config.deactivate()
+                code, out, _ = call('--config', str(path), 'doctor', '--no-probe', '--json')
+                report = json.loads(out)
+                self.assertEqual(code, cli.EXIT['config'])
+                self.assertFalse(report['ok'])
+                check = next(c for c in report['checks'] if c['check'] == 'config')
+                self.assertEqual(check['level'], 'fail')
+                self.assertIn(str(path), check['detail'])
+
+    def test_malformed_case_metadata_is_a_json_usage_error(self):
+        for field, toml in (('id', GOOD_TOML.replace('id = "demo-001"', 'id = 1')),
+                            ('assertions', GOOD_TOML.replace('assertions = { behavior = "rate", preserved = "zero" }',
+                                                             'assertions = ["behavior"]'))):
+            directory = self.cfg.cases / 'demo' / 'demo-001'
+            shutil.rmtree(directory, ignore_errors=True)
+            write_case(self.cfg.cases, toml)
+            for argv in (['list', '--json'], ['run', '--dry-run', '--json']):
+                with self.subTest(field=field, argv=argv):
+                    code, out, err = self.run_cli(*argv)
+                    error = json.loads(out)
+                    self.assertEqual((code, error['ok'], error['exit']), (cli.EXIT['usage'], False, 2))
+                    self.assertIn('demo-001/case.toml', error['error'])
+                    self.assertIn(f'{field} must be', error['error'])
+                    self.assertNotIn('Traceback', err)
 
     def test_schema_lists_the_exit_codes_and_evidence_keys(self):
         code, out, _ = self.run_cli('schema', '--json')

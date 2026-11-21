@@ -45,6 +45,7 @@ class HostContractTests(ProjectCase, unittest.TestCase):
             for sample in sorted((SAMPLES / name).glob('*.jsonl')):
                 expected = json.loads((sample.parent / (sample.stem + '.expected.json')).read_text())
                 status = expected.pop('status')
+                foreign = expected.pop('foreign_skills', None)
                 with self.subTest(host=name, sample=sample.name), tempfile.TemporaryDirectory() as tmp:
                     t = trial(Path(tmp))
                     shutil.copy(sample, t.trace)
@@ -52,6 +53,8 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                     self.assertEqual(validate_evidence(evidence), [])
                     for key, value in expected.items():
                         self.assertEqual(evidence[key], value, key)
+                    if foreign is not None:
+                        self.assertEqual(adapter.foreign_skills(t, evidence), foreign)
                     process = {'exit': 0 if status in ('completed', 'trace_incomplete') else 1,
                                'started': 0, 'ended': 1}
                     self.assertEqual(adapter.classify(process, evidence, ''), status)

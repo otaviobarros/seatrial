@@ -87,6 +87,20 @@ class Codex(HostAdapter):
             evidence['skills'] += children['skills']
         return evidence
 
+    def foreign_skills(self, trial, evidence):
+        """SKILL.md reads outside the installed plugin; relative paths start at the project."""
+        roots = [(trial.project / '.agents').resolve(), Path(trial.plugin).resolve()]
+        foreign = []
+        for skill in evidence['skills']:
+            if skill.startswith('~'):  # HOME is private and empty: never the installed plugin.
+                foreign.append(skill)
+                continue
+            path = Path(skill)
+            path = (path if path.is_absolute() else trial.project / path).resolve()
+            if not any(path == root or root in path.parents for root in roots):
+                foreign.append(skill)
+        return foreign
+
     def release(self, trial, lock):
         """Carry a refreshed login back only when the shared file is still the one we copied."""
         home = trial.state.get('home')

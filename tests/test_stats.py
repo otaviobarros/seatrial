@@ -49,6 +49,17 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(verdict(arm(2), arm(3), 3), 'inconclusive')
         self.assertEqual(verdict(arm(3), arm(3), 3), 'non-inferior')
 
+    def test_threshold_uses_full_precision_p_values(self):
+        # 6/9 against 1/9 has p = 0.04977; rounded to 0.050 it would miss the threshold.
+        def decide(base, head):
+            return stats.decide(ASSERTIONS, 'behavior', arm(9, behavior=base), arm(9, behavior=head), 9)
+        regressed, improved = decide(6, 1), decide(1, 6)
+        self.assertEqual((regressed['verdict'], improved['verdict']), ('regressed', 'improved'))
+        self.assertAlmostEqual(regressed['p_values']['behavior'], 0.0497738, places=6)
+        # 7/9 against 2/9 has p = 0.0567: just above the threshold in both directions.
+        self.assertEqual(decide(7, 2)['verdict'], 'inconclusive')
+        self.assertEqual(decide(2, 7)['verdict'], 'non-inferior')
+
 
 if __name__ == '__main__':
     unittest.main()

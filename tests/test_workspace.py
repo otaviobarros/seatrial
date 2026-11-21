@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from seatrial import workspace
+from seatrial import config, workspace
 from seatrial.checks import git, init_repo, line_counts
 from seatrial.workspace import WORKTREE, delta, manifest, mount
 from tests.support import ProjectCase
@@ -119,6 +119,33 @@ class MountTests(ProjectCase, unittest.TestCase):
         self.assertEqual(first.parent, self.cfg.state)
         with self.assertRaises(FileExistsError):
             workspace.new_run_directory('stamp')
+
+
+class RootPluginMountTests(unittest.TestCase):
+    def test_root_plugin_mount_excludes_evaluation_inputs_and_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / 'project'
+            init_repo(root)
+            (root / '.claude-plugin').mkdir()
+            (root / '.claude-plugin/plugin.json').write_text('{"name": "demo-plugin"}\n')
+            (root / 'skills/demo').mkdir(parents=True)
+            (root / 'skills/demo/SKILL.md').write_text('---\nname: demo\n---\n')
+            (root / 'evals/cases/demo-001').mkdir(parents=True)
+            (root / 'evals/cases/demo-001/case.py').write_text('# grader\n')
+            (root / config.FILENAME).write_text(config.render(
+                'demo', '.', 'plugin', 'demo-plugin', 'evals/cases', ['codex']))
+            git(root, 'add', '.')
+            git(root, 'commit', '--quiet', '-m', 'feat: seed project')
+            self.addCleanup(config.deactivate)
+            config.activate(config.load(root / config.FILENAME))
+            for revision in (WORKTREE, 'HEAD'):
+                with self.subTest(revision=revision):
+                    target = Path(tmp) / f'mount-{revision}'
+                    mount(revision, target)
+                    self.assertTrue((target / 'skills/demo/SKILL.md').is_file())
+                    self.assertTrue((target / '.claude-plugin/plugin.json').is_file())
+                    for name in ('evals', config.FILENAME, '.git'):
+                        self.assertFalse((target / name).exists(), name)
 
 
 class SkillsLayoutMountTests(ProjectCase, unittest.TestCase):

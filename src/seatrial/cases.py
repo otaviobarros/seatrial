@@ -30,6 +30,9 @@ SUITES = ('capability', 'regression')
 KINDS = ('rate', 'zero')
 ID = re.compile(r'^[a-z][a-z0-9-]*-\d{3}$')
 REQUIRED = ('id', 'version', 'skill', 'suite', 'summary', 'primary', 'assertions')
+TYPES = {'id': str, 'version': int, 'skill': str, 'suite': str, 'summary': str, 'primary': str,
+         'assertions': dict, 'rules': list, 'hosts': list, 'effort': str, 'project': str,
+         'timeout': int, 'shared': list}
 
 
 def case_root():
@@ -121,6 +124,23 @@ def _load_shared(path):
     return _SHARED[path]
 
 
+def type_problems(meta):
+    """Fields whose TOML type is wrong, checked before any field is used."""
+    problems = []
+    for key, kind in TYPES.items():
+        value = meta.get(key)
+        if key in meta and (not isinstance(value, kind) or (kind is int and isinstance(value, bool))):
+            problems.append(f'{key} must be {"a table" if kind is dict else "a " + kind.__name__}, '
+                            f'not {type(value).__name__}')
+    for key in ('rules', 'hosts', 'shared'):
+        if isinstance(meta.get(key), list) and not all(isinstance(v, str) for v in meta[key]):
+            problems.append(f'{key} must list strings')
+    if isinstance(meta.get('assertions'), dict) and not all(
+            isinstance(v, str) for v in meta['assertions'].values()):
+        problems.append('assertions values must be strings')
+    return problems
+
+
 def parse(path, root=None):
     """Read and validate one case directory."""
     root = Path(root or case_root())
@@ -134,6 +154,9 @@ def parse(path, root=None):
     unknown = set(meta) - set(Case.__dataclass_fields__) - {'path', 'module'}
     if unknown:
         raise ValueError(f'{path}: unknown keys {sorted(unknown)}')
+    problems = type_problems(meta)
+    if problems:
+        raise ValueError(f'{path / "case.toml"}: ' + '; '.join(problems))
     if 'hosts' not in meta and config.active():
         meta['hosts'] = list(config.active().hosts)
     case = Case(path=path, **meta)

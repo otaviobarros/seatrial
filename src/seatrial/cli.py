@@ -62,6 +62,8 @@ def add_selectors(parser):
     parser.add_argument('--rule', action='append', default=[], help='Rule ID from case.toml; repeatable')
     parser.add_argument('--suite', action='append', default=[], choices=case_index.SUITES)
     parser.add_argument('--host', action='append', default=[], help='Host adapter; repeatable')
+    parser.add_argument('--holdout', action='store_true',
+                        help='Select only held-out cases; without it, run and compare skip them')
 
 
 def add_run_options(parser):
@@ -158,9 +160,10 @@ def progress(args):
     return show
 
 
-def selected(parser, args):
+def selected(parser, args, holdout):
     try:
-        found = case_index.select(case_index.discover(), args.case, args.skill, args.rule, args.suite, args.host)
+        found = case_index.select(case_index.discover(), args.case, args.skill, args.rule, args.suite, args.host,
+                                  holdout)
     except ValueError as error:
         parser.error(str(error))
     if not found:
@@ -173,12 +176,15 @@ def command_list(parser, args):
         empty = not case_index.discover()
     except ValueError as error:
         parser.error(str(error))
-    if not any((args.case, args.skill, args.rule, args.suite, args.host)) and empty:
+    if not any((args.case, args.skill, args.rule, args.suite, args.host, args.holdout)) and empty:
         emit(args, [], ui.info('no cases yet; run `seatrial new-case`'))
         return EXIT['ok']
-    found = selected(parser, args)
-    rows = [[c.id, c.skill, c.suite, ','.join(c.hosts), c.summary] for c in found]
-    data = [{'id': c.id, 'skill': c.skill, 'suite': c.suite, 'hosts': c.hosts, 'rules': c.rules,
+    # Listing shows held-out cases too, marked, so they are never forgotten.
+    found = selected(parser, args, True if args.holdout else None)
+    rows = [[c.id, c.skill, c.suite + (' holdout' if c.holdout else ''), ','.join(c.hosts), c.summary]
+            for c in found]
+    data = [{'id': c.id, 'skill': c.skill, 'suite': c.suite, 'holdout': c.holdout, 'hosts': c.hosts,
+             'rules': c.rules,
              'summary': c.summary, 'assertions': c.assertions, 'primary': c.primary,
              'path': str(c.path)} for c in found]
     emit(args, data, ui.table(['Case', 'Skill', 'Suite', 'Hosts', 'Summary'], rows)
@@ -254,7 +260,7 @@ def plan(parser, args, revisions):
         except ValueError as error:
             parser.error(str(error))
     args.effort = args.effort or config.current().defaults['effort']
-    chosen = selected(parser, args)
+    chosen = selected(parser, args, args.holdout)
     try:
         hosts = args.host or sorted({h for c in chosen for h in c.hosts})
         for host in hosts:

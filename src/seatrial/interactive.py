@@ -21,14 +21,19 @@ def run(argv):
 
 def pick_cases():
     found = case_index.discover()
-    skills = sorted({c.skill for c in found.values()})
-    scope = ui.choose('Which cases?', [('all', f'All cases ({len(found)})'), ('skill', 'One skill'),
-                                       ('case', 'One case')])
+    tuning = [c for c in found.values() if not c.holdout]
+    held = len(found) - len(tuning)
+    skills = sorted({c.skill for c in tuning})
+    scopes = [('all', f'All cases ({len(tuning)})'), ('skill', 'One skill'), ('case', 'One case')] if tuning else []
+    if held:
+        scopes.append(('holdout', f'Held-out cases ({held}); run once, after the edit is final'))
+    scope = ui.choose('Which cases?', scopes)
+    if scope == 'holdout':
+        return ['--holdout']
     if scope == 'skill':
         return ['--skill', ui.choose('Skill', [(s, s) for s in skills])]
     if scope == 'case':
-        return ['--case', ui.choose('Case', [(c.id, f'{c.id}  {ui.style(c.summary, "dim")}')
-                                             for c in found.values()])]
+        return ['--case', ui.choose('Case', [(c.id, f'{c.id}  {ui.style(c.summary, "dim")}') for c in tuning])]
     return []
 
 

@@ -67,8 +67,8 @@ def summarize(meta, records, cases):
     summary = dict(meta, cases={})
     for case in cases:
         hosts = sorted({r['host'] for r in records if r['case_id'] == case.id})
-        entry = {'skill': case.skill, 'suite': case.suite, 'rules': case.rules, 'identity': case.identity(),
-                 'primary': case.primary, 'assertions': case.assertions, 'hosts': {}}
+        entry = {'skill': case.skill, 'suite': case.suite, 'holdout': case.holdout, 'rules': case.rules,
+                 'identity': case.identity(), 'primary': case.primary, 'assertions': case.assertions, 'hosts': {}}
         for host in hosts:
             arms = {arm: summarize_arm(case, [r for r in records if r['case_id'] == case.id
                                               and r['host'] == host and r['arm'] == arm])

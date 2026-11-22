@@ -7,8 +7,9 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
-from seatrial import cli, config, setup
+from seatrial import cli, config, interactive, setup
 from tests.support import ProjectCase, make_project
 from tests.test_cases import GOOD_TOML, write_case
 
@@ -149,6 +150,38 @@ class CommandTests(ProjectCase, unittest.TestCase):
                     self.assertIn('demo-001/case.toml', error['error'])
                     self.assertIn(f'{field} must be', error['error'])
                     self.assertNotIn('Traceback', err)
+
+    def test_held_out_cases_are_listed_but_run_only_with_holdout(self):
+        write_case(self.cfg.cases)
+        write_case(self.cfg.cases, GOOD_TOML.replace('demo-001', 'demo-002') + 'holdout = true\n', name='demo-002')
+        code, out, _ = self.run_cli('list', '--json')
+        self.assertEqual([(c['id'], c['holdout']) for c in json.loads(out)],
+                         [('demo-001', False), ('demo-002', True)])
+        planned = {}
+        for flag in ([], ['--holdout']):
+            code, out, err = self.run_cli('run', '--dry-run', '--json', *flag)
+            self.assertEqual(code, 0, err)
+            planned[bool(flag)] = {t['case'] for t in json.loads(out)['trials']}
+        self.assertEqual(planned, {False: {'demo-001'}, True: {'demo-002'}})
+        code, out, _ = self.run_cli('run', '--case', 'demo-002', '--dry-run', '--json')
+        self.assertEqual(code, cli.EXIT['usage'])
+        self.assertIn('--holdout', json.loads(out)['error'])
+
+    def test_interactive_menu_keeps_held_out_cases_apart(self):
+        write_case(self.cfg.cases)
+        write_case(self.cfg.cases, GOOD_TOML.replace('demo-001', 'demo-002') + 'holdout = true\n', name='demo-002')
+        offered = []
+
+        def choose(question, options, default=0):
+            offered.append([value for value, _ in options])
+            return answers.pop(0)
+        with mock.patch.object(interactive.ui, 'choose', choose):
+            answers = ['case', 'demo-001']
+            self.assertEqual(interactive.pick_cases(), ['--case', 'demo-001'])
+            answers = ['holdout']
+            self.assertEqual(interactive.pick_cases(), ['--holdout'])
+        self.assertEqual(offered[0], ['all', 'skill', 'case', 'holdout'])
+        self.assertEqual(offered[1], ['demo-001'])
 
     def test_schema_lists_the_exit_codes_and_evidence_keys(self):
         code, out, _ = self.run_cli('schema', '--json')

@@ -84,6 +84,23 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unknown case ids'):
             cases.select(found, ids=['missing-001'])
 
+    def test_held_out_cases_run_only_when_asked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_case(tmp)
+            write_case(tmp, GOOD_TOML.replace('demo-001', 'demo-002') + 'holdout = true\n', name='demo-002')
+            found = cases.discover(tmp)
+        self.assertEqual([c.id for c in cases.select(found)], ['demo-001'])
+        self.assertEqual([c.id for c in cases.select(found, holdout=True)], ['demo-002'])
+        self.assertEqual([c.id for c in cases.select(found, holdout=None)], ['demo-001', 'demo-002'])
+        with self.assertRaisesRegex(ValueError, 'held-out cases need --holdout: demo-002'):
+            cases.select(found, ids=['demo-002'])
+        with self.assertRaisesRegex(ValueError, '--holdout selects only held-out cases: demo-001'):
+            cases.select(found, ids=['demo-001'], holdout=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            write_case(tmp, GOOD_TOML + 'holdout = "yes"\n')
+            with self.assertRaisesRegex(ValueError, 'holdout must be a bool'):
+                cases.discover(tmp)
+
     def test_identity_changes_with_grader_or_fixture(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = write_case(tmp)

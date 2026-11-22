@@ -34,6 +34,69 @@ shared modules and fixtures. They are never discovered as cases.
 | `project` | No | The project folder name the agent sees; default `project` |
 | `timeout` | No | Seconds per trial |
 | `shared` | No | Paths to shared modules or fixture folders inside the case root |
+| `holdout` | No | `true` keeps the case out of tuning; see [held-out cases](#held-out-cases) |
+
+## Held-out cases
+
+A held-out case is a case you keep out of the edit loop. You tune the skill
+against your other cases, then run the held-out ones once, after the edit is
+final. They answer a question the tuning cases cannot: does the edit help on
+prompts you did not write it for?
+
+### When to use them
+
+- You edit a skill over several rounds until its cases pass.
+- The skill must handle inputs beyond the cases you have, such as other change
+  types, other file layouts, or other phrasings.
+- You report a before-and-after result to someone else.
+
+A single smoke case or a regression guard does not need a held-out partner.
+
+### Benefits
+
+- **Catches overfitting.** An edit can teach the agent the exact prompts you
+  tuned on and break the neighbors. Tuning cases cannot show that, because the
+  edit was shaped to pass them.
+- **Keeps you honest by default.** `run` and `compare` skip held-out cases, so
+  they cannot leak into a tuning round by accident. Naming one with `--case`
+  without `--holdout` is a usage error, and `--holdout --case` on a tuning case
+  is one too.
+- **Stays visible.** `list` shows every case and marks held-out ones. Run
+  summaries carry `holdout` per case, so a report can separate the two sets.
+
+### Example
+
+A `changelog` skill has two tuning cases, a feature and a fix, and two
+held-out cases, a removal and an entry added to an existing `## Unreleased`
+section. Mark the held-out ones in `case.toml`:
+
+```toml
+id = "changelog-removal-001"
+version = 1
+skill = "changelog"
+suite = "capability"
+summary = "A removal becomes a Removed entry under Unreleased."
+primary = "entry"
+holdout = true
+assertions = { entry = "rate", preserved = "zero" }
+```
+
+Edit the skill and compare on the tuning cases as often as you need. When the
+edit is final, measure the held-out cases once:
+
+```sh
+seatrial compare --base main               # tuning cases, every round
+seatrial compare --base main --holdout     # held-out cases, once at the end
+```
+
+In one such run, an edit that listed only `Added` and `Fixed` entries scored
+10/10 before and after on the tuning cases. On the held-out cases it dropped
+from 10/10 to 8/10 and 9/10: the agent filed a removal as
+`- Fixed: removed deprecated --legacy flag (#58)`.
+
+A held-out case that you read, debug, or change while you edit the skill stops
+being held out. Turn it into a tuning case by removing `holdout = true`, and
+write a new held-out case in its place.
 
 ## case.py
 

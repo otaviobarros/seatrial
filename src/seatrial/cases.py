@@ -3,7 +3,7 @@
 A case lives in `<cases>/<skill>/<case-id>/`, where `<cases>` is `[cases] path`
 in seatrial.toml:
 
-  case.toml   metadata: id, version, skill, suite, rules, hosts, effort, primary, assertions
+  case.toml   metadata: id, version, skill, suite, rules, hosts, effort, primary, assertions, holdout
   case.py     build(project) -> prompt and grade(project, evidence) -> {assertion: (passed, note)}
   fixture/    optional files that build() copies into the project
 
@@ -32,7 +32,7 @@ ID = re.compile(r'^[a-z][a-z0-9-]*-\d{3}$')
 REQUIRED = ('id', 'version', 'skill', 'suite', 'summary', 'primary', 'assertions')
 TYPES = {'id': str, 'version': int, 'skill': str, 'suite': str, 'summary': str, 'primary': str,
          'assertions': dict, 'rules': list, 'hosts': list, 'effort': str, 'project': str,
-         'timeout': int, 'shared': list}
+         'timeout': int, 'shared': list, 'holdout': bool}
 
 
 def case_root():
@@ -61,6 +61,7 @@ class Case:
     project: str = 'project'
     timeout: int | None = None
     shared: list = field(default_factory=list)
+    holdout: bool = False
     module: object = None
 
     @property
@@ -193,10 +194,21 @@ def discover(root=None):
     return cases
 
 
-def select(cases, ids=(), skills=(), rules=(), suites=(), hosts=()):
-    """Cases matching every given filter; each filter matches any of its values."""
+def select(cases, ids=(), skills=(), rules=(), suites=(), hosts=(), holdout=False):
+    """Cases matching every given filter; each filter matches any of its values.
+
+    Held-out cases are kept apart from the cases a skill is tuned on: `holdout=False`
+    skips them, `True` selects only them, and `None` selects both.
+    """
+    if holdout is not None:
+        named = sorted(i for i in ids if i in cases and cases[i].holdout != holdout)
+        if named:
+            need = 'held-out cases need --holdout' if not holdout else '--holdout selects only held-out cases'
+            raise ValueError(f'{need}: {", ".join(named)}')
     chosen = []
     for case in cases.values():
+        if holdout is not None and case.holdout != holdout:
+            continue
         if ids and case.id not in ids:
             continue
         if skills and case.skill not in skills:

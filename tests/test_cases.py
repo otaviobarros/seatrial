@@ -94,6 +94,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([c.id for c in cases.select(found, holdout=None)], ['demo-001', 'demo-002'])
         with self.assertRaisesRegex(ValueError, 'held-out cases need --holdout: demo-002'):
             cases.select(found, ids=['demo-002'])
+        with self.assertRaisesRegex(ValueError, '--holdout selects only held-out cases: demo-001'):
+            cases.select(found, ids=['demo-001'], holdout=True)
         with tempfile.TemporaryDirectory() as tmp:
             write_case(tmp, GOOD_TOML + 'holdout = "yes"\n')
             with self.assertRaisesRegex(ValueError, 'holdout must be a bool'):

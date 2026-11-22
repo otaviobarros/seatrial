@@ -63,7 +63,7 @@ def add_selectors(parser):
     parser.add_argument('--suite', action='append', default=[], choices=case_index.SUITES)
     parser.add_argument('--host', action='append', default=[], help='Host adapter; repeatable')
     parser.add_argument('--holdout', action='store_true',
-                        help='Select only held-out cases; other commands skip them')
+                        help='Select only held-out cases; without it, run and compare skip them')
 
 
 def add_run_options(parser):

@@ -200,10 +200,11 @@ def select(cases, ids=(), skills=(), rules=(), suites=(), hosts=(), holdout=Fals
     Held-out cases are kept apart from the cases a skill is tuned on: `holdout=False`
     skips them, `True` selects only them, and `None` selects both.
     """
-    if holdout is False:
-        named = sorted(i for i in ids if i in cases and cases[i].holdout)
+    if holdout is not None:
+        named = sorted(i for i in ids if i in cases and cases[i].holdout != holdout)
         if named:
-            raise ValueError(f'held-out cases need --holdout: {", ".join(named)}')
+            need = 'held-out cases need --holdout' if not holdout else '--holdout selects only held-out cases'
+            raise ValueError(f'{need}: {", ".join(named)}')
     chosen = []
     for case in cases.values():
         if holdout is not None and case.holdout != holdout:

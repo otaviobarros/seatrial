@@ -4,7 +4,8 @@ Isolation: no setting sources, no MCP servers, no session persistence, a sandbox
 denies network and reads of the evaluated project, and a fixed tool list. Scheduling tools
 (ScheduleWakeup, CronCreate, Monitor) are not offered, so a trial cannot schedule
 extra turns after its report. Background tasks are disabled: an auto-backgrounded
-shell command kept the CLI alive after its final result until the trial timed out. The plugin loads from a mounted copy with --plugin-dir.
+shell command kept the CLI alive after its final result until the trial timed out. The plugin loads from a mounted copy with --plugin-dir;
+the NONE revision passes no --plugin-dir.
 With ANTHROPIC_API_KEY set, each trial gets its own CLAUDE_CONFIG_DIR, so user-level
 skills cannot load. A subscription login lives in the user's config, so trials signed in
 that way keep it, and `foreign_skills` reports any skill from outside the plugin.
@@ -50,7 +51,7 @@ class Claude(HostAdapter):
         settings = {'sandbox': {'enabled': True, 'allowUnsandboxedCommands': False,
                                 'network': {'allowedDomains': []},
                                 'filesystem': {'denyRead': [str(config.current().root)]}}}
-        command = ['claude', '-p', '--plugin-dir', str(trial.plugin),
+        command = ['claude', '-p', *(['--plugin-dir', str(trial.plugin)] if trial.plugin else []),
                    '--setting-sources', '', '--strict-mcp-config',
                    '--mcp-config', str(trial.directory / 'mcp.json'),
                    '--settings', json.dumps(settings), '--permission-mode', 'acceptEdits',
@@ -78,6 +79,8 @@ class Claude(HostAdapter):
         return {}
 
     def foreign_skills(self, trial, evidence):
+        if trial.plugin is None:
+            return [skill for skill in evidence['skills'] if skill]
         prefix = config.current().namespace + ':'
         plugin = Path(trial.plugin).resolve()
         foreign = []

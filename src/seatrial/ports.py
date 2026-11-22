@@ -4,8 +4,8 @@ An adapter wraps one agent CLI (Codex, Claude Code, ...), not one model. The run
 calls the methods in this order for every trial:
 
   version()                     once per run; None means the CLI is unavailable
-  invocation(skill)             the prompt prefix that invokes a plugin skill
-  prepare(trial)                isolate the host and install the plugin
+  invocation(skill)             the prompt prefix that invokes a plugin skill; not called for NONE
+  prepare(trial)                isolate the host and install the plugin, if trial.plugin is set
   command(trial), environment(trial, base)
   ... the runner launches the command and waits ...
   collect(trial)                parse the traces into an Evidence dict
@@ -68,7 +68,7 @@ class Trial:
     """Paths and settings for one trial. The runner creates it; adapters read it."""
     directory: Path          # private to this trial; holds traces and host state
     project: Path            # the agent's working directory
-    plugin: Path             # the mounted plugin revision (read-only source)
+    plugin: Path | None      # the mounted plugin revision (read-only source); None for NONE
     prompt: str
     model: str
     effort: str
@@ -140,7 +140,9 @@ class HostAdapter:
         raise NotImplementedError
 
     def prepare(self, trial):
-        """Create private host state and install the plugin. Return the installed plugin path."""
+        """Create private host state and install the plugin. Return the installed plugin path.
+
+        With trial.plugin None (the NONE revision), install nothing and return None."""
         raise NotImplementedError
 
     def command(self, trial):
@@ -159,7 +161,7 @@ class HostAdapter:
         raise NotImplementedError
 
     def foreign_skills(self, trial, evidence):
-        """Skills in the evidence that did not come from the mounted plugin."""
+        """Skills in the evidence that did not come from the mounted plugin; with no plugin, every skill."""
         return []
 
     def unknown_skills(self, trial, evidence):

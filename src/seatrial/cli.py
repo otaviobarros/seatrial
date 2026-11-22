@@ -13,8 +13,9 @@
   seatrial hosts                list host adapters and CLI versions
   seatrial schema               print the case, evidence, and exit-code contract
 
-REV is a Git revision, or WORKTREE (the default head) for the skill files in this
-checkout, including uncommitted changes. `run` and `compare` call host CLIs and spend
+REV is a Git revision, WORKTREE (the default head) for the skill files in this
+checkout, including uncommitted changes, or NONE for a baseline with no skill loaded
+and the plain request. `run` and `compare` call host CLIs and spend
 quota; use --dry-run to see the trial plan first. Add --json for machine-readable output.
 """
 import argparse
@@ -26,7 +27,7 @@ from seatrial import __version__, config, report, runner, setup, ui, workspace
 from seatrial import cases as case_index
 from seatrial import hosts as registry
 from seatrial.ports import EVIDENCE_KEYS
-from seatrial.workspace import WORKTREE
+from seatrial.workspace import NONE, WORKTREE
 
 # Exit codes. Agents and CI can branch on them.
 EXIT = {'ok': 0, 'failed': 1, 'usage': 2, 'config': 3, 'regressed': 4}
@@ -120,10 +121,10 @@ def build_parser():
     new.add_argument('--summary')
     add_json(new)
     single = commands.add_parser('run', help='Run cases against one skill revision')
-    single.add_argument('--rev', default=WORKTREE, help='Skill revision (default: WORKTREE)')
+    single.add_argument('--rev', default=WORKTREE, help='Skill revision, or NONE for no skill (default: WORKTREE)')
     add_run_options(single)
     pair = commands.add_parser('compare', help='Compare two skill revisions')
-    pair.add_argument('--base', required=True, help='Revision before the change, for example main')
+    pair.add_argument('--base', required=True, help='Revision before the change, for example main, or NONE for no skill')
     pair.add_argument('--head', default=WORKTREE, help='Revision after the change (default: WORKTREE)')
     add_run_options(pair)
     runs = commands.add_parser('runs', help='List retained run directories, newest first')
@@ -409,6 +410,9 @@ def command_schema(parser, args):
         'statuses': {'graded': list(report.GRADED),
                      'invalid': ['incomplete', 'trace_incomplete', 'timeout', 'host_stall', 'usage_limit',
                                  'auth_error', 'harness_error', 'stale', 'control']},
+        'revisions': {'<git revision>': 'the skills folder at that commit',
+                      WORKTREE: 'the skills folder in the checkout, uncommitted changes included',
+                      NONE: 'no plugin and no skill invocation; the prompt is the request from build()'},
         'verdicts': ['improved', 'non-inferior', 'regressed', 'inconclusive'],
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',
                                              'collect', 'release', 'classify') if hasattr(HostAdapter, m)],

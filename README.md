@@ -25,7 +25,8 @@ takes the skill out on a fixed course, many times, and records what happened.
 - **Graded by code.** A case's `grade()` checks files, Git state, commands, and the
   final message. No model judges the result.
 - **Two revisions, one verdict.** `compare` runs `main` against your uncommitted
-  edits and reports `improved`, `non-inferior`, `regressed`, or `inconclusive`.
+  edits, or no skill against your skill, and reports `improved`, `non-inferior`,
+  `regressed`, or `inconclusive`.
 - **Nothing to install into your project.** Python 3.11+ standard library and Git.
 
 ## How it works
@@ -65,7 +66,7 @@ in November 2026.
 | | seatrial | [`claude plugin eval`](https://code.claude.com/docs/en/plugin-evals) | [promptfoo](https://www.promptfoo.dev/docs/guides/test-agent-skills/) | [Inspect](https://inspect.aisi.org.uk) + [inspect_swe](https://meridianlabs-ai.github.io/inspect_swe) |
 |---|---|---|---|---|
 | Agents | Claude Code and Codex CLIs; others through an adapter | Claude Code | Claude Agent SDK, Codex SDK, OpenCode SDK | Claude Code and Codex CLI as Inspect agents, with any model |
-| Compares | Two Git revisions of your skills, including uncommitted edits | The plugin loaded against no plugin | Skill versions in separate fixture folders, side by side | Models and agents on a task set |
+| Compares | Two Git revisions of your skills, including uncommitted edits, or a revision against no skill | The plugin loaded against no plugin | Skill versions in separate fixture folders, side by side | Models and agents on a task set |
 | Grading | Your Python code over files, Git state, commands, and the final message | Regex, tool use, and file checks, plus model-judged rubrics | Assertions such as skill used, custom JavaScript, plus model-graded | Code or model scorers |
 | Statistics | Fisher exact test per assertion, and a verdict per case and host | Three runs per case by default, mean scores against a threshold | `--repeat`; no significance test | Metrics such as accuracy and standard error |
 | Isolation | Fresh Git project per trial, filtered environment, flags skills from outside the plugin | Fresh home, working folder, and config per run | A `working_dir` per provider | Docker sandbox |
@@ -160,6 +161,11 @@ uncommitted changes. `compare` defaults `--head` to `WORKTREE`, so
 `seatrial compare --base main` measures uncommitted edits. Each revision mounts
 as a whole skill folder; trials alternate between revisions so that time and load
 affect both alike.
+
+`NONE` is the baseline without the skill: it mounts no plugin, and the prompt is
+the case request without the skill invocation. `seatrial compare --base NONE`
+measures whether the skill helps at all; reports label that arm `none`. Any skill
+that loads in a `NONE` trial counts as an isolation warning.
 
 Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
 `--suite capability|regression`, `--host NAME`. Cases marked `holdout = true` run

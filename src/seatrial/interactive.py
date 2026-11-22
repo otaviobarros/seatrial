@@ -46,7 +46,7 @@ def trials(command):
     cfg = config.current()
     argv = [command]
     if command == 'compare':
-        argv += ['--base', ui.ask('Base revision (before the change)', 'main')]
+        argv += ['--base', ui.ask('Base revision (before the change; NONE for no skill)', 'main')]
         argv += ['--head', ui.ask('Head revision (after the change)', WORKTREE)]
     else:
         argv += ['--rev', ui.ask('Skill revision', WORKTREE)]

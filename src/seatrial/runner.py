@@ -19,7 +19,7 @@ import time
 from seatrial import config, report
 from seatrial.ports import Trial, validate_evidence
 from seatrial.process import launch
-from seatrial.workspace import check_revision, delta, manifest, mount, new_run_directory, retained
+from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained
 
 STOP = ('usage_limit', 'auth_error')
 
@@ -66,6 +66,8 @@ def _project_base(project):
 
 def _source_manifest(project, installed):
     found = manifest(project, source=True)
+    if installed is None:
+        return found
     try:
         inside = installed.resolve().relative_to(project.resolve())
     except ValueError:
@@ -102,8 +104,10 @@ def run_trial(job, context):
     directory.mkdir(parents=True)
     effort = context['effort'] or case.effort
     timeout = trial_timeout(case, context)
-    prompt = host.invocation(case.skill) + '\n' + case.build(project)
-    trial = Trial(directory, project, context['mounts'][arm], prompt, context['models'][host.name],
+    plugin = context['mounts'][arm]
+    request = case.build(project)
+    prompt = request if plugin is None else host.invocation(case.skill) + '\n' + request  # NONE: plain request.
+    trial = Trial(directory, project, plugin, prompt, context['models'][host.name],
                   effort, timeout, context['budget_usd'])
     record = {'case_id': case.id, 'case_version': case.version, 'host': host.name, 'arm': arm,
               'trial_index': job['index'], 'revision': context['revisions'][arm],
@@ -112,7 +116,8 @@ def run_trial(job, context):
     installed = None
     try:
         installed = host.prepare(trial)
-        before = (_source_manifest(project, installed), manifest(project / '.git'), manifest(installed))
+        before = (_source_manifest(project, installed), manifest(project / '.git'),
+                  manifest(installed) if installed else {})
         project_base = _project_base(project)
         started = datetime.datetime.now(datetime.timezone.utc)
         process = launch(host.command(trial), project, host.environment(trial, os.environ),
@@ -126,7 +131,7 @@ def run_trial(job, context):
     evidence.update(project_base=project_base,
                     source_changes=delta(before[0], _source_manifest(project, installed)),
                     git_changed=bool(delta(before[1], manifest(project / '.git'))),
-                    plugin_changed=bool(delta(before[2], manifest(installed))))
+                    plugin_changed=bool(installed and delta(before[2], manifest(installed))))
     (directory / 'evidence.json').write_text(json.dumps(evidence) + '\n')
     stderr = trial.stderr.read_text(errors='replace')[-4000:] if trial.stderr.exists() else ''
     status = host.classify(process, evidence, stderr)
@@ -170,7 +175,7 @@ def execute(cases, hosts, revisions, options, on_record=None):
     work = new_run_directory()
     mounts, identities = {}, {}
     for position, (arm, revision) in enumerate(revisions.items()):
-        mounts[arm] = work / f'p{position}'
+        mounts[arm] = None if revision == NONE else work / f'p{position}'
         identities[arm] = mount(revision, mounts[arm])
     context = {'work': work, 'adapters': adapters, 'versions': versions, 'mounts': mounts,
                'revisions': identities, 'models': options['models'], 'effort': options['effort'],

@@ -11,6 +11,7 @@ import time
 from seatrial import config
 
 WORKTREE = 'WORKTREE'  # Revision name for the skill files in the current checkout.
+NONE = 'NONE'  # Revision name for the baseline arm: no plugin, no skill invocation.
 RUNTIME = {'.scratch', '__pycache__'}
 IGNORE = ('__pycache__', '*.pyc', '.DS_Store')
 
@@ -69,6 +70,8 @@ def tree_hash(root):
 
 def resolve(revision):
     """Identify a revision without mounting it: commit sha and skills tree."""
+    if revision == NONE:
+        return {'name': NONE, 'sha': None, 'tree': None}
     skills = config.current().skills
     if revision == WORKTREE:
         try:
@@ -84,7 +87,7 @@ def resolve(revision):
 
 def check_revision(revision):
     """Resolve one revision or raise ValueError with a message for the user."""
-    if revision == WORKTREE:
+    if revision in (WORKTREE, NONE):
         return resolve(revision)
     try:
         source()
@@ -190,9 +193,11 @@ def mount(revision, dest):
     """Extract the skills folder at one revision, without evaluation inputs; never mix revisions.
 
     The mount is always plugin-shaped: a `skills` layout is placed under `skills/`
-    next to a generated `.claude-plugin/plugin.json`."""
+    next to a generated `.claude-plugin/plugin.json`. NONE mounts nothing."""
     cfg = config.current()
     identity = resolve(revision)
+    if revision == NONE:
+        return identity
     target = dest / 'skills' if cfg.layout == 'skills' else dest
     excluded, protected = evaluation_inputs(cfg), protected_paths(cfg)
     if revision == WORKTREE:

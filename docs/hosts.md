@@ -31,8 +31,8 @@ trial:
 | Method | Returns |
 |---|---|
 | `version()` | The CLI version, or `None` when the CLI is unavailable |
-| `invocation(skill)` | The prompt prefix that invokes the skill |
-| `prepare(trial)` | Isolates the host and installs `trial.plugin`; returns the installed path |
+| `invocation(skill)` | The prompt prefix that invokes the skill; not called for a `NONE` trial |
+| `prepare(trial)` | Isolates the host and installs `trial.plugin`; returns the installed path, or `None` when `trial.plugin` is `None` |
 | `command(trial)` | The argument list to launch |
 | `environment(trial, base)` | Optional; the process environment |
 | `collect(trial)` | An evidence dict with every key of `EVIDENCE_KEYS` |
@@ -42,7 +42,8 @@ trial:
 ## Isolation
 
 - Use no user configuration, user-level skills, MCP servers, or network for tool
-  commands. Load skills only from `trial.plugin`.
+  commands. Load skills only from `trial.plugin`. A `NONE` trial has
+  `trial.plugin = None`: load no plugin, and report every loaded skill as foreign.
 - Build the environment from `HostAdapter.environment`. It passes only `PASS_ENV`
   (`PATH`, `HOME`, locale, proxy, and certificate variables), the adapter's
   `pass_env` patterns, and `[run] pass_env`, and gives Git only repository config and
@@ -67,5 +68,6 @@ trial:
 
 Record a trace from a real run, remove personal paths, and save it as
 `seatrial/hosts/samples/<name>/<sample>.jsonl` with a `<sample>.expected.json`
-listing evidence values and the expected status. `tests/test_host_contract.py`
-replays every sample.
+listing evidence values and the expected status. Optional keys: `foreign_skills`,
+`unknown_skills`, `trial_project`, and `trial_plugin` (`null` replays a `NONE`
+trial). `tests/test_host_contract.py` replays every sample.

@@ -39,6 +39,8 @@ exit-code contract.
    the skill edit is final, and report them apart from the tuning cases.
    A case whose `error` is not null cannot load its `case.py`; report the error
    and leave the case out.
+   To measure whether a skill helps at all, compare with `--base NONE`. Reports
+   label that arm `none`.
 3. Print the plan with `--dry-run --json`. Confirm that `count` fits the task's
    budget before any native call. A selected case that cannot load stops the
    plan with exit 2 and names the case.

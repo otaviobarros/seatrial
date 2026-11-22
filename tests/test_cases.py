@@ -82,6 +82,14 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual([a['id'] for a in record['assertions'] if a['passed']],
                              ['behavior', 'preserved', 'skill_triggered'])
 
+    def test_relative_skill_read_resolves_against_its_directory(self):
+        evidence = empty_evidence()
+        evidence['skills'] = ['SKILL.md']
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
+        self.assertEqual(checks.skill_triggered(evidence, 'demo'), (True, 'SKILL.md'))
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/other'}]
+        self.assertFalse(checks.skill_triggered(evidence, 'demo')[0])
+
     def test_shared_folders_are_not_cases_and_duplicates_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_case(tmp)

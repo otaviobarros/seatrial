@@ -76,11 +76,13 @@ def _source_manifest(project, installed):
     return {p: h for p, h in found.items() if not p.startswith(prefix)}
 
 
-def other_skills(case, record, evidence):
+def other_skills(case, host, trial, evidence):
     """Skills from the plugin other than the case skill; a sign the wrong skill triggered."""
-    outside = set(record.get('foreign_skills', [])) | set(record.get('unknown_skills', []))
-    return sorted({s for s in evidence['skills'] if s and s not in outside
-                   and not checks.skill_triggered({'skills': [s]}, case.skill)[0]})[:10]
+    if trial.plugin is None:  # No plugin: every skill is already reported as foreign.
+        return []
+    outside = set(host.foreign_skills(trial, evidence)) | set(host.unknown_skills(trial, evidence))
+    return sorted({raw for raw, resolved in checks.skill_entries(evidence) if raw and raw not in outside
+                   and not checks.skill_triggered({'skills': [resolved]}, case.skill)[0]})[:10]
 
 
 def isolation_findings(host, trial, evidence):
@@ -161,7 +163,7 @@ def run_trial(job, context):
     record.update(isolation_findings(host, trial, evidence))
     if status == 'completed' and trial.plugin is None and record.get('foreign_skills'):
         status = record['status'] = 'contaminated'  # The baseline ran a skill: not a no-skill measurement.
-    other = other_skills(case, record, evidence)
+    other = other_skills(case, host, trial, evidence)
     if other:
         record['other_skills'] = other
     if process.get('kill_failed'):  # Leaked processes must be visible, never silent.

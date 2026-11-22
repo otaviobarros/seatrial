@@ -5,6 +5,7 @@ Every check returns `(passed, note)`, the value a case's grade() maps to an asse
 import json
 import os
 from pathlib import Path
+import posixpath
 import re
 import shutil
 import subprocess
@@ -122,8 +123,21 @@ def delegated(evidence):
 
 def skill_triggered(evidence, skill):
     """The trace shows the named skill: `plugin:skill`, the bare name, or its SKILL.md path."""
-    hits = [s for s in evidence['skills'] if _names(s, skill)]
+    hits = [raw for raw, resolved in skill_entries(evidence) if _names(resolved, skill)]
     return bool(hits), '; '.join(hits)[:300] or 'skill not seen in trace'
+
+
+def skill_entries(evidence):
+    """(recorded, resolved) pairs; a relative SKILL.md read resolves against its recorded directory."""
+    reads = evidence.get('skill_reads')
+    if reads is None:
+        return [(s, s) for s in evidence['skills']]
+    entries = [(s, s) for s in evidence['skills'] if s not in {r['path'] for r in reads}]
+    for read in reads:
+        path, cwd = read['path'], read.get('cwd')
+        relative = cwd and not path.startswith(('/', '~'))
+        entries.append((path, posixpath.normpath(posixpath.join(cwd, path)) if relative else path))
+    return entries
 
 
 def skill_loaded(evidence, skill):
@@ -132,7 +146,7 @@ def skill_loaded(evidence, skill):
 
 
 def _names(entry, skill):
-    name = entry.replace('\\', '/')
+    name = posixpath.normpath(entry.replace('\\', '/')) if entry else entry
     return name.lstrip('/') == skill or name.endswith(':' + skill) or name.endswith(f'/{skill}/SKILL.md') \
         or name == f'{skill}/SKILL.md'
 

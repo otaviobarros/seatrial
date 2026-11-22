@@ -8,6 +8,7 @@ import concurrent.futures
 import tempfile
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -251,6 +252,17 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertTrue(records['demo-003']['pass'], records['demo-003'])
         self.assertEqual(records['demo-003']['other_skills'], ['demo-plugin:other'])
         self.assertEqual(json.loads((work / 'run.json').read_text())['trigger_override'], 'auto')
+
+    def test_other_skills_excludes_the_case_skill_and_every_outside_skill(self):
+        class Outside(Fake):
+            def foreign_skills(self, trial, evidence):
+                return [f'/home/skills/s{i}/SKILL.md' for i in range(12)]
+
+        case = types.SimpleNamespace(skill='demo')
+        evidence = new_evidence()
+        evidence['skills'] = ['SKILL.md', 'demo-plugin:other', *Outside().foreign_skills(None, None)]
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
+        self.assertEqual(runner.other_skills(case, Outside(), None, evidence), ['demo-plugin:other'])
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

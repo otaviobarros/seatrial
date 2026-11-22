@@ -234,8 +234,8 @@ directory: `runs`, `report latest`, and `regrade` show only the current project'
 
 | File | Content |
 |---|---|
-| `run.json` | The run settings and revisions, written before the first trial |
-| `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path |
+| `run.json` | The run settings and revisions, including `trigger_override`, written before the first trial |
+| `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path; `trigger` is the trial's trigger mode, and `other_skills` lists other plugin skills it loaded |
 | `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
 

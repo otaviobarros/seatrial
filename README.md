@@ -156,15 +156,16 @@ npx skills add otaviobarros/seatrial
 3. Set a budget: `--n`, `--max-runs`, `--max-minutes`, and `--max-cost-usd` for
    hosts that report cost.
 
-A revision is a Git revision or `WORKTREE`, the skill files in the checkout with
-uncommitted changes. `compare` defaults `--head` to `WORKTREE`, so
+A revision is a Git revision, `WORKTREE` (the skill files in the checkout with
+uncommitted changes), or `NONE`. `compare` defaults `--head` to `WORKTREE`, so
 `seatrial compare --base main` measures uncommitted edits. Each revision mounts
 as a whole skill folder; trials alternate between revisions so that time and load
 affect both alike.
 
 `NONE` is the baseline without the skill: it mounts no plugin, and the prompt is
 the case request without the skill invocation. `seatrial compare --base NONE`
-measures whether the skill helps at all; reports label that arm `none`. Any skill
+measures whether the skill helps at all; text reports label that arm `none`, and
+JSON keeps the arm name with `revisions.<arm>.name` set to `NONE`. Any skill
 that loads in a `NONE` trial counts as an isolation warning.
 
 Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,

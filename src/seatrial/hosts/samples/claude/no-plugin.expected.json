@@ -1,0 +1,4 @@
+{"trial_plugin": null,
+ "skills": ["verify-change", "/home/user/.claude/skills/verify-change/SKILL.md"],
+ "foreign_skills": ["verify-change", "/home/user/.claude/skills/verify-change/SKILL.md"],
+ "final_message": "Done.", "terminal": true, "cost_usd": 0.004, "status": "completed"}

@@ -38,6 +38,20 @@ def grade(project, evidence):
             'preserved': preserved(evidence, allow=['hello.txt'])}
 '''
 
+# A negative case: the request is off-topic, so the skill must stay unloaded.
+NEGATIVE_PY = '''from seatrial.checks import skill_triggered
+
+
+def build(project):
+    project.mkdir(parents=True, exist_ok=True)
+    return 'List the files.'
+
+
+def grade(project, evidence):
+    triggered, note = skill_triggered(evidence, CASE.skill)
+    return {'quiet': (not triggered, note)}
+'''
+
 
 class Fake(HostAdapter):
     name = 'fake'
@@ -202,6 +216,41 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
             cli.main(['--no-color', '--config', str(self.cfg.file), 'run', '--rev', 'none', '--dry-run'])
         self.assertIn('use NONE for no skill', err.getvalue())
+
+    def test_auto_trigger_grades_whether_the_skill_loaded_on_its_own(self):
+        class Picky(Fake):  # Loads demo for hello requests and another skill otherwise.
+            def collect(self, trial):
+                evidence = super().collect(trial)
+                evidence['skills'] = ['demo-plugin:demo' if 'hello' in trial.prompt else 'demo-plugin:other']
+                return evidence
+
+        root = self.cfg.cases / 'demo'
+        toml = (root / 'demo-001/case.toml').read_text()
+        (root / 'demo-001/case.toml').write_text(toml.replace(
+            'primary = "behavior"', 'primary = "skill_triggered"').replace(
+            'preserved = "zero" }', 'preserved = "zero", skill_triggered = "rate" }'))
+        negative = toml.replace('demo-001', 'demo-003').replace('primary = "behavior"', 'primary = "quiet"').replace(
+            '{ behavior = "rate", preserved = "zero" }', '{ quiet = "rate" }')
+        write_case(self.cfg.cases, negative, NEGATIVE_PY, name='demo-003')
+        host, prompts = Picky(), []
+        command = host.command
+        host.command = lambda trial: prompts.append(trial.prompt) or command(trial)
+        with mock.patch.object(hosts, 'get', lambda name: host):
+            ok, out = self.cli('run', '--case', 'demo-001', '--case', 'demo-003', '--host', 'fake',
+                               '--n', '1', '--trigger', 'auto', '--dry-run')
+            self.assertIn('trigger=auto', out)
+            ok, out = self.cli('run', '--case', 'demo-001', '--case', 'demo-003', '--host', 'fake',
+                               '--n', '1', '--trigger', 'auto')
+        self.assertTrue(ok, out)
+        self.assertFalse(any(p.startswith('/') for p in prompts), prompts)
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        records = {r['case_id']: r for r in map(json.loads, (work / 'records.jsonl').read_text().splitlines())}
+        self.assertTrue(records['demo-001']['pass'], records['demo-001'])
+        self.assertEqual(records['demo-001']['trigger'], 'auto')
+        self.assertNotIn('other_skills', records['demo-001'])
+        self.assertTrue(records['demo-003']['pass'], records['demo-003'])
+        self.assertEqual(records['demo-003']['other_skills'], ['demo-plugin:other'])
+        self.assertEqual(json.loads((work / 'run.json').read_text())['trigger_override'], 'auto')
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

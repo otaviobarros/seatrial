@@ -120,10 +120,21 @@ def delegated(evidence):
     return count > 0 and traced > 0, f'{count} delegations, {traced} traced'
 
 
-def skill_loaded(evidence, skill):
-    """The host loaded the named skill from the plugin under evaluation."""
-    hits = [s for s in evidence['skills'] if skill in s]
+def skill_triggered(evidence, skill):
+    """The trace shows the named skill: `plugin:skill`, the bare name, or its SKILL.md path."""
+    hits = [s for s in evidence['skills'] if _names(s, skill)]
     return bool(hits), '; '.join(hits)[:300] or 'skill not seen in trace'
+
+
+def skill_loaded(evidence, skill):
+    """The host loaded the named skill; the runner flags skills from outside the plugin."""
+    return skill_triggered(evidence, skill)
+
+
+def _names(entry, skill):
+    name = entry.replace('\\', '/')
+    return name.lstrip('/') == skill or name.endswith(':' + skill) or name.endswith(f'/{skill}/SKILL.md') \
+        or name == f'{skill}/SKILL.md'
 
 
 def report_matches(evidence, pattern):

@@ -174,6 +174,8 @@ Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
 `--suite capability|regression`, `--host NAME`. Cases marked `holdout = true` run
 only with `--holdout`, so you can tune a skill on some cases and check it on
 others; see [held-out cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#held-out-cases).
+Cases marked `trigger = "auto"` test whether the agent loads the skill on its
+own; see [trigger modes](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#trigger-modes).
 
 <details>
 <summary>Options, defaults, and limits</summary>
@@ -187,6 +189,7 @@ others; see [held-out cases](https://github.com/otaviobarros/seatrial/blob/main/
 | `--timeout` seconds per trial | case value, else `[run] timeout`, 180 | `max_timeout`, 600 |
 | `--max-cost-usd` total host-reported cost | none | none |
 | `--budget-usd` per-trial cap (Claude only) | none | none |
+| `--trigger explicit\|auto`; `auto` sends the request without the skill invocation | case `trigger`, `explicit` | none |
 
 </details>
 

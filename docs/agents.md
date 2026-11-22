@@ -42,7 +42,8 @@ exit-code contract.
    and leave the case out.
    To measure whether a skill helps at all, compare with `--base NONE`. Text
    reports label that arm `none`; JSON keeps `base` and sets
-   `summary.revisions.base.name` to `"NONE"`.
+   `summary.revisions.base.name` to `"NONE"`. To measure whether the agent picks
+   a skill on its own, add `--trigger auto`.
 3. Print the plan with `--dry-run --json`. Confirm that `count` fits the task's
    budget before any native call. A selected case that cannot load stops the
    plan with exit 2 and names the case.

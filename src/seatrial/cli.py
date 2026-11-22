@@ -73,6 +73,8 @@ def add_run_options(parser):
     parser.add_argument('--model', action='append', default=[], metavar='HOST=MODEL',
                         help='Model for one host; defaults to [hosts.models] or the adapter default')
     parser.add_argument('--effort', default=None, help='Override every case effort')
+    parser.add_argument('--trigger', choices=case_index.TRIGGERS, default=None,
+                        help='Override every case trigger: explicit invokes the skill, auto sends the request alone')
     parser.add_argument('--timeout', type=int, default=None, help='Seconds per trial; overrides case timeouts')
     parser.add_argument('--jobs', type=int, default=None, help='Parallel trials (default from config)')
     parser.add_argument('--max-runs', type=int, default=None, help='Refuse plans with more trials')
@@ -285,22 +287,24 @@ def plan(parser, args, revisions):
     return chosen, hosts, models, jobs, values
 
 
-def plan_view(jobs, models, revisions):
+def plan_view(jobs, models, revisions, trigger=None):
     return [{'case': j['case'].id, 'host': j['host'], 'model': models[j['host']], 'arm': j['arm'],
-             'revision': revisions[j['arm']], 'index': j['index']} for j in jobs]
+             'revision': revisions[j['arm']], 'trigger': trigger or j['case'].trigger, 'index': j['index']}
+            for j in jobs]
 
 
 def command_trials(parser, args, revisions):
     chosen, hosts, models, jobs, values = plan(parser, args, revisions)
     if args.dry_run:
-        trials = plan_view(jobs, models, revisions)
-        lines = [f"{t['case']} {t['host']}:{t['model']} {t['arm']}={t['revision']} #{t['index']}" for t in trials]
+        trials = plan_view(jobs, models, revisions, args.trigger)
+        lines = [f"{t['case']} {t['host']}:{t['model']} {t['arm']}={t['revision']} #{t['index']}"
+                 + (' trigger=auto' if t['trigger'] == 'auto' else '') for t in trials]
         emit(args, {'dry_run': True, 'trials': trials, 'count': len(trials)},
              '\n'.join(lines + [ui.info(f'{len(jobs)} trials; no native calls made')]))
         return EXIT['ok']
     options = {'n': values['n'], 'models': models, 'effort': args.effort, 'timeout': args.timeout,
                'jobs': values['jobs'], 'max_minutes': values['max_minutes'], 'max_cost_usd': args.max_cost_usd,
-               'budget_usd': args.budget_usd}
+               'budget_usd': args.budget_usd, 'trigger': args.trigger}
     if not args.json:
         print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'))
     try:
@@ -415,6 +419,9 @@ def command_schema(parser, args):
         'revisions': {'<git revision>': 'the skills folder at that commit',
                       WORKTREE: 'the skills folder in the checkout, uncommitted changes included',
                       NONE: 'no plugin and no skill invocation; the prompt is the request from build()'},
+        'triggers': {'explicit': 'the prompt starts with the host skill invocation (default)',
+                     'auto': 'the prompt is the request alone; the plugin stays mounted'},
+        'built_in_assertions': {'skill_triggered': 'the trace shows the case skill; declare it under assertions to use it'},
         'verdicts': ['improved', 'non-inferior', 'regressed', 'inconclusive'],
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',
                                              'collect', 'release', 'classify') if hasattr(HostAdapter, m)],

@@ -19,8 +19,7 @@ from unittest import mock
 
 from seatrial import hosts
 from seatrial.hosts import codex
-from seatrial import checks
-from seatrial import runner
+from seatrial import checks, runner
 from tests.support import ProjectCase
 from seatrial.ports import GIT_IDENTITY, HostAdapter, Trial, validate_evidence
 
@@ -99,6 +98,14 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                 self.assertIn('model-x', command)
                 self.assertEqual(adapter.pin('model-x', 'low'), adapter.pin('model-x', 'low'))
                 self.assertNotEqual(adapter.pin('model-x', 'low'), adapter.pin('model-y', 'low'))
+
+    def test_auto_trigger_sends_the_request_alone(self):
+        for name, adapter in hosts.available().items():
+            with self.subTest(host=name):
+                explicit = runner.build_prompt(adapter, 'demo', 'Check it.', Path('/plugin'), 'explicit')
+                self.assertEqual(explicit, adapter.invocation('demo') + '\nCheck it.')
+                self.assertEqual(runner.build_prompt(adapter, 'demo', 'Check it.', Path('/plugin'), 'auto'), 'Check it.')
+                self.assertEqual(runner.build_prompt(adapter, 'demo', 'Check it.', None, 'explicit'), 'Check it.')
 
     def test_no_skill_trial_loads_no_plugin(self):
         with tempfile.TemporaryDirectory() as tmp:

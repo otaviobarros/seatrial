@@ -35,6 +35,8 @@ exit-code contract.
 1. Run `seatrial doctor --json`. On exit 3, report each check whose `level` is
    `fail` and stop.
 2. Select cases with `seatrial list --json` and the selectors the task names.
+   Cases with `"holdout": true` run only with `--holdout`; run them once, after
+   the skill edit is final, and report them apart from the tuning cases.
 3. Print the plan with `--dry-run --json`. Confirm that `count` fits the task's
    budget before any native call.
 4. Run with an explicit budget: `--n`, `--max-runs`, `--max-minutes`, and

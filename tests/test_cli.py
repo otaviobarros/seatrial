@@ -167,6 +167,24 @@ class CommandTests(ProjectCase, unittest.TestCase):
         self.assertEqual(code, cli.EXIT['usage'])
         self.assertIn('--holdout', json.loads(out)['error'])
 
+    def test_a_case_that_cannot_load_stops_the_plan_and_is_flagged_in_list(self):
+        write_case(self.cfg.cases)
+        write_case(self.cfg.cases, GOOD_TOML.replace('demo-001', 'demo-002'),
+                   'from missing_helpers import probe\n', name='demo-002')
+        code, out, _ = self.run_cli('list', '--json')
+        self.assertEqual(code, 0)
+        errors = {c['id']: c['error'] for c in json.loads(out)}
+        self.assertIsNone(errors['demo-001'])
+        self.assertIn("demo-002: case.py cannot load: ModuleNotFoundError", errors['demo-002'])
+        for command in (['run'], ['compare', '--base', 'HEAD']):
+            with self.subTest(command=command):
+                code, out, _ = self.run_cli(*command, '--dry-run', '--json')
+                self.assertEqual(code, cli.EXIT['usage'])
+                self.assertIn('demo-002: case.py cannot load', json.loads(out)['error'])
+        self.assertFalse(self.cfg.state.exists())
+        code, out, err = self.run_cli('run', '--case', 'demo-001', '--dry-run', '--json')
+        self.assertEqual(code, 0, err)
+
     def test_interactive_menu_keeps_held_out_cases_apart(self):
         write_case(self.cfg.cases)
         write_case(self.cfg.cases, GOOD_TOML.replace('demo-001', 'demo-002') + 'holdout = true\n', name='demo-002')

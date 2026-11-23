@@ -181,12 +181,13 @@ def command_list(parser, args):
         return EXIT['ok']
     # Listing shows held-out cases too, marked, so they are never forgotten.
     found = selected(parser, args, True if args.holdout else None)
-    rows = [[c.id, c.skill, c.suite + (' holdout' if c.holdout else ''), ','.join(c.hosts), c.summary]
-            for c in found]
+    errors = {c.id: c.load_error() for c in found}
+    rows = [[c.id, c.skill, c.suite + (' holdout' if c.holdout else ''), ','.join(c.hosts),
+             ui.style(errors[c.id], 'red') if errors[c.id] else c.summary] for c in found]
     data = [{'id': c.id, 'skill': c.skill, 'suite': c.suite, 'holdout': c.holdout, 'hosts': c.hosts,
              'rules': c.rules,
              'summary': c.summary, 'assertions': c.assertions, 'primary': c.primary,
-             'path': str(c.path)} for c in found]
+             'path': str(c.path), 'error': errors[c.id]} for c in found]
     emit(args, data, ui.table(['Case', 'Skill', 'Suite', 'Hosts', 'Summary'], rows)
          + '\n' + ui.style(ui.count(len(found), 'case'), 'dim'))
     return EXIT['ok']
@@ -261,6 +262,9 @@ def plan(parser, args, revisions):
             parser.error(str(error))
     args.effort = args.effort or config.current().defaults['effort']
     chosen = selected(parser, args, args.holdout)
+    broken = [error for error in (case.load_error() for case in chosen) if error]
+    if broken:
+        parser.error('; '.join(broken))
     try:
         hosts = args.host or sorted({h for c in chosen for h in c.hosts})
         for host in hosts:

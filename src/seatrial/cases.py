@@ -82,6 +82,14 @@ class Case:
             self.module = module
         return self.module
 
+    def load_error(self):
+        """Why case.py cannot load, or None; checked before any trial is scheduled."""
+        try:
+            self.load()
+        except Exception as error:  # A case may fail in any way; report it, not crash.
+            return f'{self.id}: case.py cannot load: {type(error).__name__}: {error}'
+        return None
+
     def build(self, project):
         prompt = self.load().build(project)
         if re.match(r'\s*[$/]', prompt):

@@ -150,7 +150,8 @@ npx skills add otaviobarros/seatrial
 `run` and `compare` call host CLIs and spend quota. Before a native run:
 
 1. Sign in to each CLI (`claude /login`, `codex login`).
-2. Print the plan with `--dry-run`.
+2. Print the plan with `--dry-run`. It loads every selected `case.py` and stops
+   with exit 2 if one fails to import.
 3. Set a budget: `--n`, `--max-runs`, `--max-minutes`, and `--max-cost-usd` for
    hosts that report cost.
 

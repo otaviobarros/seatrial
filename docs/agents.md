@@ -37,8 +37,11 @@ exit-code contract.
 2. Select cases with `seatrial list --json` and the selectors the task names.
    Cases with `"holdout": true` run only with `--holdout`; run them once, after
    the skill edit is final, and report them apart from the tuning cases.
+   A case whose `error` is not null cannot load its `case.py`; report the error
+   and leave the case out.
 3. Print the plan with `--dry-run --json`. Confirm that `count` fits the task's
-   budget before any native call.
+   budget before any native call. A selected case that cannot load stops the
+   plan with exit 2 and names the case.
 4. Run with an explicit budget: `--n`, `--max-runs`, `--max-minutes`, and
    `--max-cost-usd`. Native calls spend the user's quota; run them only within
    the user's authorization.

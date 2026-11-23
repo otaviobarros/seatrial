@@ -23,7 +23,7 @@ shared modules and fixtures. They are never discovered as cases.
 |---|---|---|
 | `id` | Yes | The folder name, in the form `name-001` |
 | `version` | Yes | Increase it when the prompt, fixture, or grader changes meaning |
-| `skill` | Yes | The parent folder name; the host invokes this skill |
+| `skill` | Yes | The parent folder name; the skill the case evaluates |
 | `suite` | Yes | `capability` (expected to improve) or `regression` (must not break) |
 | `summary` | Yes | One sentence on the behavior the case checks |
 | `primary` | Yes | The assertion that `improved` is measured on |
@@ -35,6 +35,51 @@ shared modules and fixtures. They are never discovered as cases.
 | `timeout` | No | Seconds per trial |
 | `shared` | No | Paths to shared modules or fixture folders inside the case root |
 | `holdout` | No | `true` keeps the case out of tuning; see [held-out cases](#held-out-cases) |
+| `trigger` | No | `explicit` (default) or `auto`; see [trigger modes](#trigger-modes) |
+
+## Trigger modes
+
+`trigger` decides whether the prompt names the skill. `--trigger` on `run` and
+`compare` overrides it for every selected case and warns for each case whose mode
+it changes: an `explicit` prompt names the skill, so `skill_triggered` and negative
+cases stop measuring the description. NONE trials always send the request alone
+and record `auto`.
+
+| Mode | Prompt | Measures |
+|---|---|---|
+| `explicit` | The host invocation, such as `/plan-change`, then the request | What the skill does once it runs |
+| `auto` | The request alone; the plugin stays mounted | Whether the agent picks the skill from its description |
+
+Use `explicit` for cases about the skill's procedure and output. Use `auto` to
+evaluate a description edit: the description is the only thing that makes the
+agent load the skill.
+
+In `auto` cases, declare `skill_triggered` as an assertion, usually the primary:
+
+```toml
+trigger = "auto"
+primary = "skill_triggered"
+assertions = { skill_triggered = "rate", behavior = "rate" }
+```
+
+seatrial grades `skill_triggered` from the trace when `grade()` returns no
+result for it or raises. It passes when `evidence['skills']` shows the case skill.
+
+Add a negative case for every description edit: a request close to the skill's
+domain that the skill must not trigger on. Its grader asserts the opposite:
+
+```python
+from seatrial.checks import skill_triggered
+
+
+def grade(project, evidence):
+    triggered, note = skill_triggered(evidence, CASE.skill)
+    return {'quiet': (not triggered, note)}
+```
+
+When a trial loads another skill from the plugin, its record lists it under
+`other_skills`. A rise in `other_skills` means the description now competes with
+a sibling skill.
 
 ## Held-out cases
 
@@ -123,7 +168,8 @@ Import from `seatrial.checks`:
 |---|---|
 | `init_repo`, `copy_fixture`, `commit_all` | Build a Git project; `copy_fixture` installs `gitignore` as `.gitignore` |
 | `preserved(evidence, allow=[...])` | Only the allowed files changed; Git and the plugin are untouched |
-| `skill_loaded(evidence, skill)` | The host loaded the skill from the mounted revision; on Claude, a prompt that starts with `/<skill>` counts when the CLI lists it as a slash command |
+| `skill_triggered(evidence, skill)` | The trace shows the skill as `plugin:skill`, the bare name, or its `SKILL.md` path; on Claude, a prompt that starts with `/<skill>` counts when the CLI lists it as a slash command |
+| `skill_loaded(evidence, skill)` | The same check; the runner flags skills from outside the plugin |
 | `delegated(evidence)` | The agent delegated and the delegated sessions were captured |
 | `ran_tests`, `tests_ran`, `no_tests_ran`, `probe_runs` | Inspect the commands the agent ran |
 | `report_matches(evidence, pattern)` | Search the final message |

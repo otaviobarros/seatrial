@@ -5,6 +5,7 @@ Every check returns `(passed, note)`, the value a case's grade() maps to an asse
 import json
 import os
 from pathlib import Path
+import posixpath
 import re
 import shutil
 import subprocess
@@ -120,10 +121,44 @@ def delegated(evidence):
     return count > 0 and traced > 0, f'{count} delegations, {traced} traced'
 
 
-def skill_loaded(evidence, skill):
-    """The host loaded the named skill from the plugin under evaluation."""
-    hits = [s for s in evidence['skills'] if skill in s]
+def skill_triggered(evidence, skill):
+    """The trace shows the named skill: `plugin:skill`, the bare name, or its SKILL.md path."""
+    hits = [resolved for raw, resolved in skill_entries(evidence) if _names(resolved, skill)]
     return bool(hits), '; '.join(hits)[:300] or 'skill not seen in trace'
+
+
+def skill_entries(evidence):
+    """(recorded, resolved) pairs; a relative SKILL.md read resolves against its recorded directory."""
+    reads = evidence.get('skill_reads')
+    if reads is None:
+        return [(s, s) for s in evidence['skills']]
+    entries = [(s, s) for s in evidence['skills'] if s not in {r['path'] for r in reads}]
+    for read in reads:
+        path, cwd = read['path'], read.get('cwd')
+        relative = cwd and not path.startswith(('/', '~'))
+        entries.append((path, posixpath.normpath(posixpath.join(cwd, path)) if relative else path))
+    return entries
+
+
+def split_skills(evidence):
+    """One evidence dict per recorded skill, so an adapter classifies each read on its own."""
+    reads = evidence.get('skill_reads')
+    if reads is None:
+        return [{'skills': [s]} for s in evidence['skills']]
+    paths = {r['path'] for r in reads}
+    return ([{'skills': [s], 'skill_reads': []} for s in evidence['skills'] if s not in paths]
+            + [{'skills': [r['path']], 'skill_reads': [r]} for r in reads])
+
+
+def skill_loaded(evidence, skill):
+    """The host loaded the named skill; the runner flags skills from outside the plugin."""
+    return skill_triggered(evidence, skill)
+
+
+def _names(entry, skill):
+    name = posixpath.normpath(entry.replace('\\', '/')) if entry else entry
+    return name.lstrip('/') == skill or name.endswith(':' + skill) or name.endswith(f'/{skill}/SKILL.md') \
+        or name == f'{skill}/SKILL.md'
 
 
 def report_matches(evidence, pattern):

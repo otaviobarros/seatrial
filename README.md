@@ -174,6 +174,8 @@ Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
 `--suite capability|regression`, `--host NAME`. Cases marked `holdout = true` run
 only with `--holdout`, so you can tune a skill on some cases and check it on
 others; see [held-out cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#held-out-cases).
+Cases marked `trigger = "auto"` test whether the agent loads the skill on its
+own; see [trigger modes](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#trigger-modes).
 
 <details>
 <summary>Options, defaults, and limits</summary>
@@ -187,6 +189,7 @@ others; see [held-out cases](https://github.com/otaviobarros/seatrial/blob/main/
 | `--timeout` seconds per trial | case value, else `[run] timeout`, 180 | `max_timeout`, 600 |
 | `--max-cost-usd` total host-reported cost | none | none |
 | `--budget-usd` per-trial cap (Claude only) | none | none |
+| `--trigger explicit\|auto`; `auto` sends the request without the skill invocation | case `trigger`, `explicit` | none |
 
 </details>
 
@@ -231,8 +234,8 @@ directory: `runs`, `report latest`, and `regrade` show only the current project'
 
 | File | Content |
 |---|---|
-| `run.json` | The run settings and revisions, written before the first trial |
-| `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path |
+| `run.json` | The run settings and revisions, including `trigger_override`, written before the first trial |
+| `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path; `trigger` is the trial's trigger mode (`auto` for NONE), and `other_skills` lists other plugin skills it loaded, by resolved path |
 | `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
 

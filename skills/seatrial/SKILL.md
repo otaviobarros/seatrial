@@ -47,9 +47,13 @@ A case checks one behavior of one skill in a fictional project.
    and the final message in `evidence`. Use the helpers in `seatrial.checks`.
 4. Mark an assertion `zero` when one failure is a regression; mark it `rate` when
    a pass rate is the measure. Name the main one in `primary`.
-5. Set `holdout = true` on cases the user wants kept out of tuning. Leave a
+5. To evaluate a skill description, set `trigger = "auto"`, make
+   `skill_triggered` the primary assertion, and add a negative case whose request
+   must not load the skill. `seatrial schema --json` lists `triggers` and
+   `built_in_assertions`.
+6. Set `holdout = true` on cases the user wants kept out of tuning. Leave a
    held-out case unread and unrun while you edit the skill.
-6. Check the case without model calls: `seatrial list --json` and
+7. Check the case without model calls: `seatrial list --json` and
    `seatrial run --case ID --dry-run --json`, plus `--holdout` for a held-out case.
 
 ## Run and compare

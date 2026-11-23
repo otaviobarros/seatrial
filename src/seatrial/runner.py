@@ -16,7 +16,7 @@ import subprocess
 import threading
 import time
 
-from seatrial import config, report
+from seatrial import checks, config, report
 from seatrial.ports import Trial, validate_evidence
 from seatrial.process import launch
 from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained
@@ -76,6 +76,19 @@ def _source_manifest(project, installed):
     return {p: h for p, h in found.items() if not p.startswith(prefix)}
 
 
+def other_skills(case, host, trial, evidence):
+    """Skills from the plugin other than the case skill; a sign the wrong skill triggered."""
+    if trial.plugin is None:  # No plugin: every skill is already reported as foreign.
+        return []
+    found = set()
+    for single in checks.split_skills(evidence):  # Two reads of one relative path can differ in origin.
+        if not single['skills'][0] or host.foreign_skills(trial, single) or host.unknown_skills(trial, single):
+            continue
+        if not checks.skill_triggered(single, case.skill)[0]:
+            found.add(checks.skill_entries(single)[0][1])
+    return sorted(found)[:10]
+
+
 def isolation_findings(host, trial, evidence):
     """Skills from outside the plugin, and commands that name the evaluated project.
 
@@ -99,6 +112,18 @@ def isolation_findings(host, trial, evidence):
     return found
 
 
+def effective_trigger(trigger, no_plugin):
+    """NONE trials send the request alone, whatever the case asks for."""
+    return 'auto' if no_plugin else trigger
+
+
+def build_prompt(host, skill, request, plugin, trigger):
+    """The host invocation and the request; NONE and auto trials send the request alone."""
+    if plugin is None or trigger == 'auto':
+        return request
+    return host.invocation(skill) + '\n' + request
+
+
 def run_trial(job, context):
     case, host, arm = job['case'], context['adapters'][job['host']], job['arm']
     directory = context['work'] / 'trials' / secrets.token_hex(4)  # Neutral, agent-visible path.
@@ -108,11 +133,12 @@ def run_trial(job, context):
     timeout = trial_timeout(case, context)
     plugin = context['mounts'][arm]
     request = case.build(project)
-    prompt = request if plugin is None else host.invocation(case.skill) + '\n' + request  # NONE: plain request.
+    trigger = effective_trigger(context['trigger'] or case.trigger, plugin is None)
+    prompt = build_prompt(host, case.skill, request, plugin, trigger)
     trial = Trial(directory, project, plugin, prompt, context['models'][host.name],
                   effort, timeout, context['budget_usd'])
     record = {'case_id': case.id, 'case_version': case.version, 'host': host.name, 'arm': arm,
-              'trial_index': job['index'], 'revision': context['revisions'][arm],
+              'trial_index': job['index'], 'revision': context['revisions'][arm], 'trigger': trigger,
               'cli_version': context['versions'][host.name], 'model': trial.model, 'effort': effort,
               'flags_sha256': host.pin(trial.model, effort), 'trial_dir': str(directory)}
     installed = None
@@ -146,6 +172,9 @@ def run_trial(job, context):
     record.update(isolation_findings(host, trial, evidence))
     if status == 'completed' and trial.plugin is None and record.get('foreign_skills'):
         status = record['status'] = 'contaminated'  # The baseline ran a skill: not a no-skill measurement.
+    other = other_skills(case, host, trial, evidence)
+    if other:
+        record['other_skills'] = other
     if process.get('kill_failed'):  # Leaked processes must be visible, never silent.
         record['kill_failed'] = process['kill_failed']
     if status == 'completed':
@@ -184,11 +213,12 @@ def execute(cases, hosts, revisions, options, on_record=None):
     context = {'work': work, 'adapters': adapters, 'versions': versions, 'mounts': mounts,
                'revisions': identities, 'models': options['models'], 'effort': options['effort'],
                'timeout': options['timeout'] or defaults()['timeout'], 'timeout_override': options['timeout'],
-               'budget_usd': options['budget_usd'], 'lock': threading.Lock()}
+               'budget_usd': options['budget_usd'], 'trigger': options.get('trigger'), 'lock': threading.Lock()}
     cfg = config.current()
     started = {'created_at': work.name, 'project': context_name(), 'root': str(cfg.root), 'arms': arms,
                'revisions': identities, 'hosts': hosts, 'cli_versions': versions,
                'models': {h: options['models'][h] for h in hosts}, 'effort_override': options['effort'],
+               'trigger_override': options.get('trigger'),
                'n': options['n'], 'jobs': options['jobs'], 'max_minutes': options['max_minutes'],
                'max_cost_usd': options['max_cost_usd'], 'budget_usd': options['budget_usd'],
                'scheduled': len(jobs)}
@@ -209,6 +239,9 @@ def execute(cases, hosts, revisions, options, on_record=None):
         except Exception as error:  # Keep the run and its summary; report the failed trial.
             record = {'case_id': job['case'].id, 'case_version': job['case'].version, 'host': job['host'],
                       'arm': job['arm'], 'trial_index': job['index'], 'status': 'harness_error',
+                      'revision': context['revisions'][job['arm']],
+                      'trigger': effective_trigger(context['trigger'] or job['case'].trigger,
+                                                   context['mounts'][job['arm']] is None),
                       'wall_s': None, 'errors': [f'{type(error).__name__}: {error}'[:500]]}
         except BaseException:  # Ctrl-C or exit: no queued trial may start.
             stop.set()

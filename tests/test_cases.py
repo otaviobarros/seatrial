@@ -4,8 +4,9 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
-from seatrial import cases, cli
+from seatrial import cases, checks, cli, report
 from seatrial.ports import new_evidence
 from tests.support import ProjectCase
 
@@ -52,12 +53,46 @@ class DiscoveryTests(unittest.TestCase):
             'primary must be': GOOD_TOML.replace('primary = "behavior"', 'primary = "missing"'),
             'assertion kinds': GOOD_TOML.replace('"rate"', '"often"'),
             'shared path': GOOD_TOML + 'shared = ["../../../outside.py"]\n',
+            'trigger must be': GOOD_TOML + 'trigger = "sometimes"\n',
         }
         for reason, toml in bad.items():
             with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
                 write_case(tmp, toml)
                 with self.assertRaisesRegex(ValueError, reason):
                     cases.discover(tmp)
+
+    def test_skill_triggered_agrees_with_skill_loaded_and_grades_by_default(self):
+        evidence = empty_evidence()
+        for skills, seen in ((['demo-plugin:demo'], True), (['/plugin/skills/demo/SKILL.md'], True),
+                             (['.agents/skills/demo/SKILL.md'], True), (['/demo'], True), (['demo-plugin:other'], False),
+                             ([], False)):
+            with self.subTest(skills=skills):
+                evidence['skills'] = skills
+                self.assertEqual(checks.skill_triggered(evidence, 'demo')[0], seen)
+                self.assertEqual(checks.skill_loaded(evidence, 'demo')[0], seen)
+        evidence['skills'] = ['demo-plugin:demo-extra']
+        self.assertFalse(checks.skill_triggered(evidence, 'demo')[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            toml = GOOD_TOML.replace('{ behavior = "rate", preserved = "zero" }',
+                                     '{ behavior = "rate", preserved = "zero", skill_triggered = "rate" }')
+            write_case(tmp, toml + 'trigger = "auto"\n')
+            case, = cases.discover(tmp).values()
+            self.assertEqual(case.trigger, 'auto')
+            evidence['skills'] = ['demo-plugin:demo']
+            record = report.grade({}, case, Path(tmp), evidence)
+            self.assertEqual([a['id'] for a in record['assertions'] if a['passed']],
+                             ['behavior', 'preserved', 'skill_triggered'])
+            with mock.patch.object(type(case), 'grade', side_effect=OSError('gone')):
+                record = report.grade({}, case, Path(tmp), evidence)
+            self.assertEqual([a['id'] for a in record['assertions'] if a['passed']], ['skill_triggered'])
+
+    def test_relative_skill_read_resolves_against_its_directory(self):
+        evidence = empty_evidence()
+        evidence['skills'] = ['SKILL.md']
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
+        self.assertEqual(checks.skill_triggered(evidence, 'demo'), (True, '.agents/skills/demo/SKILL.md'))
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/other'}]
+        self.assertFalse(checks.skill_triggered(evidence, 'demo')[0])
 
     def test_shared_folders_are_not_cases_and_duplicates_fail(self):
         with tempfile.TemporaryDirectory() as tmp:

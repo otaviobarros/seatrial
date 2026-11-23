@@ -8,6 +8,7 @@ import concurrent.futures
 import tempfile
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -36,6 +37,20 @@ def build(project):
 def grade(project, evidence):
     return {'behavior': ((project / 'hello.txt').is_file(), 'hello.txt'),
             'preserved': preserved(evidence, allow=['hello.txt'])}
+'''
+
+# A negative case: the request is off-topic, so the skill must stay unloaded.
+NEGATIVE_PY = '''from seatrial.checks import skill_triggered
+
+
+def build(project):
+    project.mkdir(parents=True, exist_ok=True)
+    return 'List the files.'
+
+
+def grade(project, evidence):
+    triggered, note = skill_triggered(evidence, CASE.skill)
+    return {'quiet': (not triggered, note)}
 '''
 
 
@@ -132,9 +147,28 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertEqual(json.loads(out)['run_dir'], str(work))
 
     def test_dry_run_names_the_no_skill_arm(self):
-        ok, out = self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--n', '1', '--dry-run')
+        ok, out = self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--n', '1', '--dry-run', '--json')
         self.assertTrue(ok, out)
-        self.assertIn('base=NONE', out)
+        trials = json.loads(out)['trials']
+        self.assertEqual({(t['arm'], t['revision'], t['trigger']) for t in trials if t['arm'] == 'base'},
+                         {('base', 'NONE', 'auto')})
+        self.assertEqual({t['trigger'] for t in trials if t['arm'] == 'head'}, {'explicit'})
+
+    def test_trigger_override_warns_for_cases_it_changes(self):
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = cli.main(['--no-color', '--config', str(self.cfg.file), 'run', '--case', 'demo-001',
+                             '--n', '1', '--trigger', 'auto', '--dry-run'])
+        self.assertEqual(code, 0)
+        self.assertIn('--trigger auto changes the mode of demo-001', err.getvalue())
+
+    def test_a_harness_error_record_keeps_its_revision_and_trigger(self):
+        with mock.patch.object(runner, 'run_trial', side_effect=RuntimeError('boom')):
+            ok, out = self.cli('run', '--rev', 'NONE', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        record, = map(json.loads, (work / 'records.jsonl').read_text().splitlines())
+        self.assertEqual((record['status'], record['trigger'], record['revision']['name']),
+                         ('harness_error', 'auto', 'NONE'))
 
     def test_no_skill_baseline_shows_the_skill_improves_results(self):
         class SkillOnly(Fake):
@@ -156,6 +190,7 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertFalse(any(r['pass'] for r in base))
         self.assertTrue(all(r['pass'] for r in records if r['arm'] == 'head'))
         self.assertEqual(sum(plugin is None for plugin, _ in prompts), 10)
+        self.assertEqual({r['trigger'] for r in base}, {'auto'})
         self.assertTrue(all(prompt == 'Write hello.txt.' for plugin, prompt in prompts if plugin is None))
         summary = json.loads((work / 'summary.json').read_text())
         self.assertEqual(summary['cases']['demo-001']['hosts']['fake']['decision']['verdict'], 'improved')
@@ -202,6 +237,67 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
             cli.main(['--no-color', '--config', str(self.cfg.file), 'run', '--rev', 'none', '--dry-run'])
         self.assertIn('use NONE for no skill', err.getvalue())
+
+    def test_auto_trigger_grades_whether_the_skill_loaded_on_its_own(self):
+        class Picky(Fake):  # Loads demo for hello requests and another skill otherwise.
+            def collect(self, trial):
+                evidence = super().collect(trial)
+                evidence['skills'] = ['demo-plugin:demo' if 'hello' in trial.prompt else 'demo-plugin:other']
+                return evidence
+
+        root = self.cfg.cases / 'demo'
+        toml = (root / 'demo-001/case.toml').read_text()
+        (root / 'demo-001/case.toml').write_text(toml.replace(
+            'primary = "behavior"', 'primary = "skill_triggered"').replace(
+            'preserved = "zero" }', 'preserved = "zero", skill_triggered = "rate" }'))
+        negative = toml.replace('demo-001', 'demo-003').replace('primary = "behavior"', 'primary = "quiet"').replace(
+            '{ behavior = "rate", preserved = "zero" }', '{ quiet = "rate" }')
+        write_case(self.cfg.cases, negative, NEGATIVE_PY, name='demo-003')
+        host, prompts = Picky(), []
+        command = host.command
+        host.command = lambda trial: prompts.append(trial.prompt) or command(trial)
+        with mock.patch.object(hosts, 'get', lambda name: host):
+            ok, out = self.cli('run', '--case', 'demo-001', '--case', 'demo-003', '--host', 'fake',
+                               '--n', '1', '--trigger', 'auto', '--dry-run')
+            self.assertIn('trigger=auto', out)
+            ok, out = self.cli('run', '--case', 'demo-001', '--case', 'demo-003', '--host', 'fake',
+                               '--n', '1', '--trigger', 'auto')
+        self.assertTrue(ok, out)
+        self.assertFalse(any(p.startswith('/') for p in prompts), prompts)
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        records = {r['case_id']: r for r in map(json.loads, (work / 'records.jsonl').read_text().splitlines())}
+        self.assertTrue(records['demo-001']['pass'], records['demo-001'])
+        self.assertEqual(records['demo-001']['trigger'], 'auto')
+        self.assertNotIn('other_skills', records['demo-001'])
+        self.assertTrue(records['demo-003']['pass'], records['demo-003'])
+        self.assertEqual(records['demo-003']['other_skills'], ['demo-plugin:other'])
+        self.assertEqual(json.loads((work / 'run.json').read_text())['trigger_override'], 'auto')
+
+    def test_other_skills_excludes_the_case_skill_and_every_outside_skill(self):
+        class Outside(Fake):
+            def foreign_skills(self, trial, evidence):
+                return [s for s in evidence['skills'] if s.startswith('/home/')]
+
+        case = types.SimpleNamespace(skill='demo')
+        evidence = new_evidence()
+        evidence['skills'] = ['SKILL.md', 'demo-plugin:other', *(f'/home/skills/s{i}/SKILL.md' for i in range(12))]
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
+        mounted = types.SimpleNamespace(plugin=Path('/plugin'))
+        self.assertEqual(runner.other_skills(case, Outside(), mounted, evidence), ['demo-plugin:other'])
+        self.assertEqual(runner.other_skills(case, Outside(), types.SimpleNamespace(plugin=None), evidence), [])
+
+    def test_other_skills_classifies_each_read_of_one_relative_path(self):
+        class ByDirectory(Fake):
+            def foreign_skills(self, trial, evidence):
+                return [r['path'] for r in evidence['skill_reads'] if r['cwd'].startswith('/home')]
+
+        evidence = new_evidence()
+        evidence['skills'] = ['SKILL.md']
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '/home/skills/x'},
+                                   {'path': 'SKILL.md', 'cwd': '/plugin/skills/other'}]
+        found = runner.other_skills(types.SimpleNamespace(skill='demo'), ByDirectory(),
+                                    types.SimpleNamespace(plugin=Path('/plugin')), evidence)
+        self.assertEqual(found, ['/plugin/skills/other/SKILL.md'])
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

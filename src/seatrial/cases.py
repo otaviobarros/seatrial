@@ -3,7 +3,8 @@
 A case lives in `<cases>/<skill>/<case-id>/`, where `<cases>` is `[cases] path`
 in seatrial.toml:
 
-  case.toml   metadata: id, version, skill, suite, rules, hosts, effort, primary, assertions, holdout
+  case.toml   metadata: id, version, skill, suite, rules, hosts, effort, primary, assertions,
+              holdout, trigger
   case.py     build(project) -> prompt and grade(project, evidence) -> {assertion: (passed, note)}
   fixture/    optional files that build() copies into the project
 
@@ -28,11 +29,12 @@ from seatrial.workspace import manifest
 PACKAGE = Path(__file__).resolve().parent
 SUITES = ('capability', 'regression')
 KINDS = ('rate', 'zero')
+TRIGGERS = ('explicit', 'auto')  # explicit: the prompt invokes the skill; auto: the request alone.
 ID = re.compile(r'^[a-z][a-z0-9-]*-\d{3}$')
 REQUIRED = ('id', 'version', 'skill', 'suite', 'summary', 'primary', 'assertions')
 TYPES = {'id': str, 'version': int, 'skill': str, 'suite': str, 'summary': str, 'primary': str,
          'assertions': dict, 'rules': list, 'hosts': list, 'effort': str, 'project': str,
-         'timeout': int, 'shared': list, 'holdout': bool}
+         'timeout': int, 'shared': list, 'holdout': bool, 'trigger': str}
 
 
 def case_root():
@@ -62,6 +64,7 @@ class Case:
     timeout: int | None = None
     shared: list = field(default_factory=list)
     holdout: bool = False
+    trigger: str = 'explicit'
     module: object = None
 
     @property
@@ -177,6 +180,8 @@ def parse(path, root=None):
         problems.append(f'suite must be one of {SUITES}')
     if case.primary not in case.assertions:
         problems.append('primary must be an assertion')
+    if case.trigger not in TRIGGERS:
+        problems.append(f'trigger must be one of {TRIGGERS}')
     if any(kind not in KINDS for kind in case.assertions.values()):
         problems.append(f'assertion kinds must be one of {KINDS}')
     if not (path / 'case.py').is_file():

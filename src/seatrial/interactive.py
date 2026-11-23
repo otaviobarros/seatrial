@@ -49,7 +49,7 @@ def trials(command):
         argv += ['--base', ui.ask('Base revision (before the change; NONE for no skill)', 'main')]
         argv += ['--head', ui.ask('Head revision (after the change)', WORKTREE)]
     else:
-        argv += ['--rev', ui.ask('Skill revision', WORKTREE)]
+        argv += ['--rev', ui.ask('Skill revision (NONE for no skill)', WORKTREE)]
     argv += pick_cases() + pick_hosts(cfg)
     argv += ['--n', ui.ask('Trials per case, host, and arm', cfg.defaults['n'],
                            lambda v: None if v.isdigit() and 1 <= int(v) <= cfg.limits['max_n']

@@ -32,6 +32,7 @@ def _source_auth():
 class Codex(HostAdapter):
     name = 'codex'
     default_model = 'gpt-6-luna'
+    supports_no_plugin = True
     pass_env = ('OPENAI_*', 'AZURE_OPENAI_*')
 
     def version(self):
@@ -195,6 +196,8 @@ def _reads(evidence):
 
 def _origin(trial, read):
     """'installed', 'foreign', or 'unknown' for one SKILL.md read."""
+    if trial.plugin is None:  # Nothing was installed: every skill read is foreign.
+        return 'foreign'
     if read['path'].startswith('~'):  # HOME is private and empty: never the installed plugin.
         return 'foreign'
     path = Path(read['path'])
@@ -203,8 +206,6 @@ def _origin(trial, read):
             return 'unknown'
         path = trial.project / read['cwd'] / path
     path = Path(os.path.normpath(path)).resolve()
-    if trial.plugin is None:  # Nothing was installed: every skill read is foreign.
-        return 'foreign'
     roots = [(trial.project / '.agents').resolve(), Path(trial.plugin).resolve()]
     return 'installed' if any(path == r or r in path.parents for r in roots) else 'foreign'
 

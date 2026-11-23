@@ -132,6 +132,7 @@ class HostAdapter:
     pass_env = ()  # extra variable patterns the CLI needs, such as its API key
     usage_limit = USAGE_LIMIT
     auth_error = AUTH_ERROR
+    supports_no_plugin = False  # True when prepare() and command() handle trial.plugin None.
 
     def version(self):
         raise NotImplementedError
@@ -161,7 +162,7 @@ class HostAdapter:
         raise NotImplementedError
 
     def foreign_skills(self, trial, evidence):
-        """Skills in the evidence that did not come from the mounted plugin; with no plugin, every skill."""
+        """Skills in the evidence that did not come from the mounted plugin. Not called for NONE trials."""
         return []
 
     def unknown_skills(self, trial, evidence):

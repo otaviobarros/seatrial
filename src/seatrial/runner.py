@@ -82,10 +82,12 @@ def isolation_findings(host, trial, evidence):
     Trials run outside the project, so a command with its path means the agent found
     the cases or graders; a grade from such a trial is not a clean measurement."""
     found = {}
-    foreign = host.foreign_skills(trial, evidence)
+    if trial.plugin is None:  # Nothing was installed: every loaded skill is foreign.
+        foreign, unknown = [s for s in evidence['skills'] if s], []
+    else:
+        foreign, unknown = host.foreign_skills(trial, evidence), host.unknown_skills(trial, evidence)
     if foreign:
         found['foreign_skills'] = sorted(set(foreign))[:10]
-    unknown = host.unknown_skills(trial, evidence)
     if unknown:
         found['unknown_skills'] = sorted(set(unknown))[:10]
     root = config.current().root
@@ -142,6 +144,8 @@ def run_trial(job, context):
                   delegations=evidence['delegations'], delegation_traces=evidence['delegation_traces'],
                   skills=sorted(set(evidence['skills']))[:20])
     record.update(isolation_findings(host, trial, evidence))
+    if status == 'completed' and trial.plugin is None and record.get('foreign_skills'):
+        status = record['status'] = 'contaminated'  # The baseline ran a skill: not a no-skill measurement.
     if process.get('kill_failed'):  # Leaked processes must be visible, never silent.
         record['kill_failed'] = process['kill_failed']
     if status == 'completed':

@@ -20,6 +20,7 @@ from unittest import mock
 from seatrial import hosts
 from seatrial.hosts import codex
 from seatrial import checks
+from seatrial import runner
 from tests.support import ProjectCase
 from seatrial.ports import GIT_IDENTITY, HostAdapter, Trial, validate_evidence
 
@@ -61,9 +62,10 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                     self.assertEqual(validate_evidence(evidence), [])
                     for key, value in expected.items():
                         self.assertEqual(evidence[key], value, key)
+                    found = runner.isolation_findings(adapter, t, evidence)
                     if foreign is not None:
-                        self.assertEqual(adapter.foreign_skills(t, evidence), foreign)
-                    self.assertEqual(adapter.unknown_skills(t, evidence), unknown)
+                        self.assertEqual(found.get('foreign_skills', []), sorted(set(foreign)))
+                    self.assertEqual(found.get('unknown_skills', []), sorted(set(unknown)))
                     process = {'exit': 0 if status in ('completed', 'trace_incomplete') else 1,
                                'started': 0, 'ended': 1}
                     self.assertEqual(adapter.classify(process, evidence, ''), status)
@@ -105,8 +107,11 @@ class HostContractTests(ProjectCase, unittest.TestCase):
             t = Trial(root / 'trial', root / 'project', None, 'Check it.', 'model-x', 'low', 60)
             t.directory.mkdir()
             self.assertNotIn('--plugin-dir', hosts.get('claude').command(t))
-            self.assertEqual(hosts.get('claude').foreign_skills(t, {'skills': ['demo-plugin:demo']}),
-                             ['demo-plugin:demo'])
+            evidence = {'skills': ['demo-plugin:demo'], 'commands': []}
+            for adapter in hosts.available().values():
+                self.assertTrue(adapter.supports_no_plugin, adapter.name)
+                self.assertEqual(runner.isolation_findings(adapter, t, evidence),
+                                 {'foreign_skills': ['demo-plugin:demo']})
             with mock.patch.object(codex, 'homes', lambda: root / 'homes'), \
                     mock.patch.object(codex, '_source_auth', return_value=root / 'missing.json'):
                 self.assertIsNone(codex.ADAPTER.prepare(t))

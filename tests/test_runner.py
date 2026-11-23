@@ -42,6 +42,7 @@ def grade(project, evidence):
 class Fake(HostAdapter):
     name = 'fake'
     default_model = 'fake-model'
+    supports_no_plugin = True
 
     def version(self):
         return 'fake 1.0'
@@ -171,7 +172,36 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         work = Path(out.split('run directory (local only): ')[1].strip())
         records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
         self.assertEqual([(r['case_id'], r['revision']['name']) for r in records], [('demo-002', 'NONE')])
-        self.assertIn('none', out)
+        ok, out = self.cli('report', str(work), '--format', 'markdown')
+        self.assertIn('| demo-002 | fake | none |', out)
+
+    def test_a_baseline_trial_that_loads_a_skill_is_contaminated_and_not_graded(self):
+        class Leaky(Fake):
+            def collect(self, trial):
+                evidence = super().collect(trial)
+                evidence['skills'] = ['demo']  # A user-level copy of the skill under test.
+                return evidence
+
+        with mock.patch.object(hosts, 'get', lambda name: Leaky()):
+            ok, out = self.cli('run', '--rev', 'NONE', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        [record] = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        self.assertEqual((record['status'], record['foreign_skills']), ('contaminated', ['demo']))
+        self.assertNotIn('pass', record)
+
+    def test_none_is_rejected_for_a_host_without_no_plugin_support(self):
+        class PluginOnly(Fake):
+            supports_no_plugin = False
+
+        with mock.patch.object(hosts, 'get', lambda name: PluginOnly()), self.assertRaises(SystemExit) as raised:
+            self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--host', 'fake', '--dry-run')
+        self.assertEqual(raised.exception.code, cli.EXIT['usage'])
+
+    def test_a_lowercase_none_revision_names_the_reserved_spelling(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            cli.main(['--no-color', '--config', str(self.cfg.file), 'run', '--rev', 'none', '--dry-run'])
+        self.assertIn('use NONE for no skill', err.getvalue())
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

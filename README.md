@@ -165,8 +165,10 @@ affect both alike.
 `NONE` is the baseline without the skill: it mounts no plugin, and the prompt is
 the case request without the skill invocation. `seatrial compare --base NONE`
 measures whether the skill helps at all; text reports label that arm `none`, and
-JSON keeps the arm name with `revisions.<arm>.name` set to `NONE`. Any skill
-that loads in a `NONE` trial counts as an isolation warning.
+JSON keeps the arm name with `revisions.<arm>.name` set to `NONE`. A `NONE`
+trial that loads any skill gets status `contaminated` and is not graded. `NONE`
+is reserved: it cannot name a Git ref. Hosts that cannot run without a plugin
+reject it.
 
 Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
 `--suite capability|regression`, `--host NAME`. Cases marked `holdout = true` run
@@ -253,6 +255,7 @@ Only `completed` trials are graded. Other statuses are excluded from pass rates:
 | `timeout`, `host_stall` | The time cap ended the trial; `host_stall` means the machine paused |
 | `incomplete` | The host exited without a successful final turn |
 | `harness_error` | seatrial failed; the record holds the exception |
+| `contaminated` | A `NONE` trial loaded a skill, so it does not measure running without one |
 | `stale` | From `regrade` only: the retained project files or `evidence.json` changed after the trial |
 
 </details>

@@ -96,7 +96,8 @@ def check_revision(revision):
     try:
         return resolve(revision)
     except subprocess.CalledProcessError:
-        raise ValueError(f'revision {revision!r} is not a commit in the skills repository') from None
+        hint = f'; use {NONE} for no skill' if revision.upper() == NONE else ''
+        raise ValueError(f'revision {revision!r} is not a commit in the skills repository{hint}') from None
 
 
 def evaluation_inputs(cfg):

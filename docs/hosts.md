@@ -43,7 +43,10 @@ trial:
 
 - Use no user configuration, user-level skills, MCP servers, or network for tool
   commands. Load skills only from `trial.plugin`. A `NONE` trial has
-  `trial.plugin = None`: load no plugin, and report every loaded skill as foreign.
+  `trial.plugin = None`: load no plugin. Set `supports_no_plugin = True` once
+  `prepare` and `command` handle that; otherwise `NONE` is rejected for the host.
+  The runner reports every skill a `NONE` trial loads as foreign and marks the
+  trial `contaminated`.
 - Build the environment from `HostAdapter.environment`. It passes only `PASS_ENV`
   (`PATH`, `HOME`, locale, proxy, and certificate variables), the adapter's
   `pass_env` patterns, and `[run] pass_env`, and gives Git only repository config and

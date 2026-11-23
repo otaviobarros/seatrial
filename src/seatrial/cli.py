@@ -272,6 +272,8 @@ def plan(parser, args, revisions):
             adapter = registry.get(host)
             if args.effort and args.effort not in adapter.efforts:
                 parser.error(f'{host} supports efforts {adapter.efforts}')
+            if NONE in revisions.values() and not adapter.supports_no_plugin:
+                parser.error(f'{host} does not support the NONE revision')
     except ValueError as error:
         parser.error(str(error))
     models = parse_models(parser, args.model, hosts)
@@ -409,7 +411,7 @@ def command_schema(parser, args):
             'plugin_changed': 'bool'},
         'statuses': {'graded': list(report.GRADED),
                      'invalid': ['incomplete', 'trace_incomplete', 'timeout', 'host_stall', 'usage_limit',
-                                 'auth_error', 'harness_error', 'stale', 'control']},
+                                 'auth_error', 'harness_error', 'stale', 'control', 'contaminated']},
         'revisions': {'<git revision>': 'the skills folder at that commit',
                       WORKTREE: 'the skills folder in the checkout, uncommitted changes included',
                       NONE: 'no plugin and no skill invocation; the prompt is the request from build()'},

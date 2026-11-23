@@ -30,6 +30,7 @@ SESSION_VARIABLES = ('CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PO
 class Claude(HostAdapter):
     name = 'claude'
     default_model = 'claude-haiku-5-5'
+    supports_no_plugin = True
     pass_env = ('ANTHROPIC_*', 'CLAUDE_CODE_*', 'CLAUDE_CONFIG_DIR', 'AWS_*', 'CLOUD_ML_REGION',
                 'GOOGLE_APPLICATION_CREDENTIALS', 'VERTEX_REGION_*')
 
@@ -79,8 +80,6 @@ class Claude(HostAdapter):
         return {}
 
     def foreign_skills(self, trial, evidence):
-        if trial.plugin is None:
-            return [skill for skill in evidence['skills'] if skill]
         prefix = config.current().namespace + ':'
         plugin = Path(trial.plugin).resolve()
         foreign = []

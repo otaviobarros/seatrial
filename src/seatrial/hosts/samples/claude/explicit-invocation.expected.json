@@ -1,0 +1,3 @@
+{"trial_prompt": "/demo-plugin:verify-change\nCheck the change.",
+ "skills": ["demo-plugin:verify-change"], "commands": ["make check"],
+ "final_message": "Done.", "terminal": true, "status": "completed"}

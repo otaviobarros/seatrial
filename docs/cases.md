@@ -123,7 +123,7 @@ Import from `seatrial.checks`:
 |---|---|
 | `init_repo`, `copy_fixture`, `commit_all` | Build a Git project; `copy_fixture` installs `gitignore` as `.gitignore` |
 | `preserved(evidence, allow=[...])` | Only the allowed files changed; Git and the plugin are untouched |
-| `skill_loaded(evidence, skill)` | The host loaded the skill from the mounted revision |
+| `skill_loaded(evidence, skill)` | The host loaded the skill from the mounted revision; on Claude, a prompt that starts with `/<skill>` counts when the CLI lists it as a slash command |
 | `delegated(evidence)` | The agent delegated and the delegated sessions were captured |
 | `ran_tests`, `tests_ran`, `no_tests_ran`, `probe_runs` | Inspect the commands the agent ran |
 | `report_matches(evidence, pattern)` | Search the final message |

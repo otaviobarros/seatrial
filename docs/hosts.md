@@ -53,7 +53,9 @@ trial:
   project path, on the trial as `foreign_skills`, `unknown_skills`, and `outside_access`.
 - Claude Code: with `ANTHROPIC_API_KEY` set, each trial gets its own
   `CLAUDE_CONFIG_DIR`. A subscription login lives in the user's config, so those
-  trials keep it, and `doctor` warns when user-level skills exist.
+  trials keep it, and `doctor` warns when user-level skills exist. An explicit prompt
+  expands the skill without a Skill call, so the adapter records the invoked skill
+  in `skills` when the init event lists it in `slash_commands`.
 - Codex CLI: its sandbox cannot deny reads, so a trial can read the evaluated
   project. Trials run outside it and receive no `PWD`; `outside_access` records any
   command that names its path.

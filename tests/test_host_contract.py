@@ -2,7 +2,8 @@
 
 Each adapter needs recorded traces in `src/seatrial/hosts/samples/<host>/`: `<name>.jsonl`
 and `<name>.expected.json`, which lists evidence values and the expected status. Optional
-keys: `foreign_skills` and `unknown_skills` (provenance) and `trial_project` (the project path).
+keys: `foreign_skills` and `unknown_skills` (provenance), `trial_project` (the project path),
+and `trial_prompt` (the prompt the trial sent).
 """
 import json
 import os
@@ -50,8 +51,9 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                 foreign = expected.pop('foreign_skills', None)
                 unknown = expected.pop('unknown_skills', [])
                 project = expected.pop('trial_project', '/project')
+                prompt = expected.pop('trial_prompt', 'Check the change.')
                 with self.subTest(host=name, sample=sample.name), tempfile.TemporaryDirectory() as tmp:
-                    t = trial(Path(tmp), project=project)
+                    t = trial(Path(tmp), prompt=prompt, project=project)
                     shutil.copy(sample, t.trace)
                     evidence = adapter.collect(t)
                     self.assertEqual(validate_evidence(evidence), [])

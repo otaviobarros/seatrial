@@ -11,6 +11,7 @@ that way keep it, and `foreign_skills` reports any skill from outside the plugin
 Delegated sessions stream into the same trace, marked with parent_tool_use_id.
 """
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -90,7 +91,7 @@ class Claude(HostAdapter):
         return foreign
 
     def collect(self, trial):
-        return parse_stream(trial.trace, trial.project)
+        return parse_stream(trial.trace, trial.project, trial.prompt)
 
 
 def _relative(path, project):
@@ -100,16 +101,18 @@ def _relative(path, project):
         return str(path)
 
 
-def parse_stream(path, project='.'):
+def parse_stream(path, project='.', prompt=''):
     """Commands, edits, delegations, usage, and errors from a stream-json trace.
 
     The final message is the last `result` event: a run that waits for a background
-    subagent emits one result per turn, and only the last one ends the process."""
+    subagent emits one result per turn, and only the last one ends the process.
+    A prompt that starts with `/<skill>` expands that skill without a Skill call, so the
+    skill counts as loaded when the init event lists it as a slash command."""
     out = new_evidence()
     path = Path(path)
     if not path.exists():
         return out
-    delegated, traced, results = set(), set(), []
+    delegated, traced, results, slash = set(), set(), [], set()
     tokens = {}
     for line in path.read_text(errors='replace').splitlines():
         try:
@@ -118,7 +121,9 @@ def parse_stream(path, project='.'):
             continue
         kind = event.get('type')
         parent = event.get('parent_tool_use_id')
-        if kind == 'assistant':
+        if kind == 'system' and event.get('subtype') == 'init':
+            slash = set(event.get('slash_commands') or [])
+        elif kind == 'assistant':
             if parent:
                 traced.add(parent)
             for block in (event.get('message') or {}).get('content') or []:
@@ -154,6 +159,9 @@ def parse_stream(path, project='.'):
             if event.get('is_error') or event.get('subtype') != 'success':
                 out['errors'].append(json.dumps({k: event.get(k) for k in
                                                  ('subtype', 'is_error', 'api_error_status', 'result')})[:500])
+    invoked = re.match(r'/(\S+)', prompt or '')
+    if invoked and invoked.group(1) in slash:
+        out['skills'].insert(0, invoked.group(1))
     out['delegations'] = len(delegated)
     out['delegation_traces'] = len(delegated & traced)
     return out

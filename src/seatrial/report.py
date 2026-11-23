@@ -22,7 +22,8 @@ def grade(record, case, project, evidence):
     try:
         graded = case.grade(project, evidence)
     except Exception as error:  # The agent can delete or rewrite any file a grader reads.
-        graded = {a: (False, f'grader error: {type(error).__name__}: {error}'[:300]) for a in case.assertions}
+        graded = {a: (False, f'grader error: {type(error).__name__}: {error}'[:300])
+                  for a in case.assertions if a != 'skill_triggered'}  # The trace still grades it.
     if 'skill_triggered' in case.assertions and 'skill_triggered' not in graded:
         graded['skill_triggered'] = checks.skill_triggered(evidence, case.skill)
     if graded.get('_status') == 'control':

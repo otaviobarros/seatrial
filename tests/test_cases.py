@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from seatrial import cases, checks, cli, report
 from seatrial.ports import new_evidence
@@ -81,12 +82,15 @@ class DiscoveryTests(unittest.TestCase):
             record = report.grade({}, case, Path(tmp), evidence)
             self.assertEqual([a['id'] for a in record['assertions'] if a['passed']],
                              ['behavior', 'preserved', 'skill_triggered'])
+            with mock.patch.object(type(case), 'grade', side_effect=OSError('gone')):
+                record = report.grade({}, case, Path(tmp), evidence)
+            self.assertEqual([a['id'] for a in record['assertions'] if a['passed']], ['skill_triggered'])
 
     def test_relative_skill_read_resolves_against_its_directory(self):
         evidence = empty_evidence()
         evidence['skills'] = ['SKILL.md']
         evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
-        self.assertEqual(checks.skill_triggered(evidence, 'demo'), (True, 'SKILL.md'))
+        self.assertEqual(checks.skill_triggered(evidence, 'demo'), (True, '.agents/skills/demo/SKILL.md'))
         evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/other'}]
         self.assertFalse(checks.skill_triggered(evidence, 'demo')[0])
 

@@ -147,9 +147,28 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertEqual(json.loads(out)['run_dir'], str(work))
 
     def test_dry_run_names_the_no_skill_arm(self):
-        ok, out = self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--n', '1', '--dry-run')
+        ok, out = self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--n', '1', '--dry-run', '--json')
         self.assertTrue(ok, out)
-        self.assertIn('base=NONE', out)
+        trials = json.loads(out)['trials']
+        self.assertEqual({(t['arm'], t['revision'], t['trigger']) for t in trials if t['arm'] == 'base'},
+                         {('base', 'NONE', 'auto')})
+        self.assertEqual({t['trigger'] for t in trials if t['arm'] == 'head'}, {'explicit'})
+
+    def test_trigger_override_warns_for_cases_it_changes(self):
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = cli.main(['--no-color', '--config', str(self.cfg.file), 'run', '--case', 'demo-001',
+                             '--n', '1', '--trigger', 'auto', '--dry-run'])
+        self.assertEqual(code, 0)
+        self.assertIn('--trigger auto changes the mode of demo-001', err.getvalue())
+
+    def test_a_harness_error_record_keeps_its_revision_and_trigger(self):
+        with mock.patch.object(runner, 'run_trial', side_effect=RuntimeError('boom')):
+            ok, out = self.cli('run', '--rev', 'NONE', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        record, = map(json.loads, (work / 'records.jsonl').read_text().splitlines())
+        self.assertEqual((record['status'], record['trigger'], record['revision']['name']),
+                         ('harness_error', 'auto', 'NONE'))
 
     def test_no_skill_baseline_shows_the_skill_improves_results(self):
         class SkillOnly(Fake):
@@ -171,6 +190,7 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertFalse(any(r['pass'] for r in base))
         self.assertTrue(all(r['pass'] for r in records if r['arm'] == 'head'))
         self.assertEqual(sum(plugin is None for plugin, _ in prompts), 10)
+        self.assertEqual({r['trigger'] for r in base}, {'auto'})
         self.assertTrue(all(prompt == 'Write hello.txt.' for plugin, prompt in prompts if plugin is None))
         summary = json.loads((work / 'summary.json').read_text())
         self.assertEqual(summary['cases']['demo-001']['hosts']['fake']['decision']['verdict'], 'improved')
@@ -256,15 +276,28 @@ class RunnerTests(ProjectCase, unittest.TestCase):
     def test_other_skills_excludes_the_case_skill_and_every_outside_skill(self):
         class Outside(Fake):
             def foreign_skills(self, trial, evidence):
-                return [f'/home/skills/s{i}/SKILL.md' for i in range(12)]
+                return [s for s in evidence['skills'] if s.startswith('/home/')]
 
         case = types.SimpleNamespace(skill='demo')
         evidence = new_evidence()
-        evidence['skills'] = ['SKILL.md', 'demo-plugin:other', *Outside().foreign_skills(None, None)]
+        evidence['skills'] = ['SKILL.md', 'demo-plugin:other', *(f'/home/skills/s{i}/SKILL.md' for i in range(12))]
         evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
         mounted = types.SimpleNamespace(plugin=Path('/plugin'))
         self.assertEqual(runner.other_skills(case, Outside(), mounted, evidence), ['demo-plugin:other'])
         self.assertEqual(runner.other_skills(case, Outside(), types.SimpleNamespace(plugin=None), evidence), [])
+
+    def test_other_skills_classifies_each_read_of_one_relative_path(self):
+        class ByDirectory(Fake):
+            def foreign_skills(self, trial, evidence):
+                return [r['path'] for r in evidence['skill_reads'] if r['cwd'].startswith('/home')]
+
+        evidence = new_evidence()
+        evidence['skills'] = ['SKILL.md']
+        evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '/home/skills/x'},
+                                   {'path': 'SKILL.md', 'cwd': '/plugin/skills/other'}]
+        found = runner.other_skills(types.SimpleNamespace(skill='demo'), ByDirectory(),
+                                    types.SimpleNamespace(plugin=Path('/plugin')), evidence)
+        self.assertEqual(found, ['/plugin/skills/other/SKILL.md'])
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

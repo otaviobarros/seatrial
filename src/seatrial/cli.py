@@ -266,6 +266,10 @@ def plan(parser, args, revisions):
     args.effort = args.effort or config.current().defaults['effort']
     chosen = selected(parser, args, args.holdout)
     broken = [error for error in (case.load_error() for case in chosen) if error]
+    trigger = getattr(args, 'trigger', None)
+    changed = [case.id for case in chosen if trigger and case.trigger != trigger]
+    if changed:  # An explicit prompt names the skill, so skill_triggered no longer measures the description.
+        print(ui.warn(f'--trigger {trigger} changes the mode of {", ".join(changed)}'), file=sys.stderr)
     if broken:
         parser.error('; '.join(broken))
     try:
@@ -289,7 +293,8 @@ def plan(parser, args, revisions):
 
 def plan_view(jobs, models, revisions, trigger=None):
     return [{'case': j['case'].id, 'host': j['host'], 'model': models[j['host']], 'arm': j['arm'],
-             'revision': revisions[j['arm']], 'trigger': trigger or j['case'].trigger, 'index': j['index']}
+             'revision': revisions[j['arm']], 'index': j['index'],
+             'trigger': runner.effective_trigger(trigger or j['case'].trigger, revisions[j['arm']] == NONE)}
             for j in jobs]
 
 

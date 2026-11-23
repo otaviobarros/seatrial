@@ -123,7 +123,7 @@ def delegated(evidence):
 
 def skill_triggered(evidence, skill):
     """The trace shows the named skill: `plugin:skill`, the bare name, or its SKILL.md path."""
-    hits = [raw for raw, resolved in skill_entries(evidence) if _names(resolved, skill)]
+    hits = [resolved for raw, resolved in skill_entries(evidence) if _names(resolved, skill)]
     return bool(hits), '; '.join(hits)[:300] or 'skill not seen in trace'
 
 
@@ -138,6 +138,16 @@ def skill_entries(evidence):
         relative = cwd and not path.startswith(('/', '~'))
         entries.append((path, posixpath.normpath(posixpath.join(cwd, path)) if relative else path))
     return entries
+
+
+def split_skills(evidence):
+    """One evidence dict per recorded skill, so an adapter classifies each read on its own."""
+    reads = evidence.get('skill_reads')
+    if reads is None:
+        return [{'skills': [s]} for s in evidence['skills']]
+    paths = {r['path'] for r in reads}
+    return ([{'skills': [s], 'skill_reads': []} for s in evidence['skills'] if s not in paths]
+            + [{'skills': [r['path']], 'skill_reads': [r]} for r in reads])
 
 
 def skill_loaded(evidence, skill):

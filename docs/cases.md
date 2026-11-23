@@ -40,7 +40,10 @@ shared modules and fixtures. They are never discovered as cases.
 ## Trigger modes
 
 `trigger` decides whether the prompt names the skill. `--trigger` on `run` and
-`compare` overrides it for every selected case.
+`compare` overrides it for every selected case and warns for each case whose mode
+it changes: an `explicit` prompt names the skill, so `skill_triggered` and negative
+cases stop measuring the description. NONE trials always send the request alone
+and record `auto`.
 
 | Mode | Prompt | Measures |
 |---|---|---|
@@ -60,7 +63,7 @@ assertions = { skill_triggered = "rate", behavior = "rate" }
 ```
 
 seatrial grades `skill_triggered` from the trace when `grade()` returns no
-result for it. It passes when `evidence['skills']` shows the case skill.
+result for it or raises. It passes when `evidence['skills']` shows the case skill.
 
 Add a negative case for every description edit: a request close to the skill's
 domain that the skill must not trigger on. Its grader asserts the opposite:

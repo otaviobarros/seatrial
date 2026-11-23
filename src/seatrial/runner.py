@@ -80,9 +80,13 @@ def other_skills(case, host, trial, evidence):
     """Skills from the plugin other than the case skill; a sign the wrong skill triggered."""
     if trial.plugin is None:  # No plugin: every skill is already reported as foreign.
         return []
-    outside = set(host.foreign_skills(trial, evidence)) | set(host.unknown_skills(trial, evidence))
-    return sorted({raw for raw, resolved in checks.skill_entries(evidence) if raw and raw not in outside
-                   and not checks.skill_triggered({'skills': [resolved]}, case.skill)[0]})[:10]
+    found = set()
+    for single in checks.split_skills(evidence):  # Two reads of one relative path can differ in origin.
+        if not single['skills'][0] or host.foreign_skills(trial, single) or host.unknown_skills(trial, single):
+            continue
+        if not checks.skill_triggered(single, case.skill)[0]:
+            found.add(checks.skill_entries(single)[0][1])
+    return sorted(found)[:10]
 
 
 def isolation_findings(host, trial, evidence):
@@ -108,6 +112,11 @@ def isolation_findings(host, trial, evidence):
     return found
 
 
+def effective_trigger(trigger, no_plugin):
+    """NONE trials send the request alone, whatever the case asks for."""
+    return 'auto' if no_plugin else trigger
+
+
 def build_prompt(host, skill, request, plugin, trigger):
     """The host invocation and the request; NONE and auto trials send the request alone."""
     if plugin is None or trigger == 'auto':
@@ -124,7 +133,7 @@ def run_trial(job, context):
     timeout = trial_timeout(case, context)
     plugin = context['mounts'][arm]
     request = case.build(project)
-    trigger = context['trigger'] or case.trigger
+    trigger = effective_trigger(context['trigger'] or case.trigger, plugin is None)
     prompt = build_prompt(host, case.skill, request, plugin, trigger)
     trial = Trial(directory, project, plugin, prompt, context['models'][host.name],
                   effort, timeout, context['budget_usd'])
@@ -230,6 +239,9 @@ def execute(cases, hosts, revisions, options, on_record=None):
         except Exception as error:  # Keep the run and its summary; report the failed trial.
             record = {'case_id': job['case'].id, 'case_version': job['case'].version, 'host': job['host'],
                       'arm': job['arm'], 'trial_index': job['index'], 'status': 'harness_error',
+                      'revision': context['revisions'][job['arm']],
+                      'trigger': effective_trigger(context['trigger'] or job['case'].trigger,
+                                                   context['mounts'][job['arm']] is None),
                       'wall_s': None, 'errors': [f'{type(error).__name__}: {error}'[:500]]}
         except BaseException:  # Ctrl-C or exit: no queued trial may start.
             stop.set()

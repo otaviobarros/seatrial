@@ -13,7 +13,7 @@ STYLES = {'bold': '1', 'dim': '2', 'red': '31', 'green': '32', 'yellow': '33', '
           'magenta': '35', 'cyan': '36', 'gray': '90'}
 STATUS_STYLE = {'completed': 'green', 'control': 'cyan', 'usage_limit': 'red', 'auth_error': 'red',
                 'harness_error': 'red', 'timeout': 'yellow', 'host_stall': 'yellow', 'incomplete': 'yellow',
-                'trace_incomplete': 'yellow', 'stale': 'yellow'}
+                'trace_incomplete': 'yellow', 'stale': 'yellow', 'contaminated': 'red'}
 VERDICT_STYLE = {'improved': 'green', 'non-inferior': 'green', 'regressed': 'red', 'inconclusive': 'yellow'}
 ANSI = re.compile(r'\x1b\[[0-9;]*m')
 _color = None

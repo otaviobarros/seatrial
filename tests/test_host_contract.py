@@ -3,7 +3,8 @@
 Each adapter needs recorded traces in `src/seatrial/hosts/samples/<host>/`: `<name>.jsonl`
 and `<name>.expected.json`, which lists evidence values and the expected status. Optional
 keys: `foreign_skills` and `unknown_skills` (provenance), `trial_project` (the project path),
-and `trial_prompt` (the prompt the trial sent).
+`trial_prompt` (the prompt the trial sent), and `trial_plugin` (the plugin path; null for a
+NONE trial).
 """
 import json
 import os
@@ -19,14 +20,15 @@ from unittest import mock
 from seatrial import hosts
 from seatrial.hosts import codex
 from seatrial import checks
+from seatrial import runner
 from tests.support import ProjectCase
 from seatrial.ports import GIT_IDENTITY, HostAdapter, Trial, validate_evidence
 
 SAMPLES = Path(hosts.__file__).parent / 'samples'
 
 
-def trial(directory, prompt='Check the change.', project='/project'):
-    return Trial(directory, Path(project), Path('/plugin'), prompt, 'model-x', 'low', 60)
+def trial(directory, prompt='Check the change.', project='/project', plugin='/plugin'):
+    return Trial(directory, Path(project), plugin and Path(plugin), prompt, 'model-x', 'low', 60)
 
 
 class HostContractTests(ProjectCase, unittest.TestCase):
@@ -52,16 +54,18 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                 unknown = expected.pop('unknown_skills', [])
                 project = expected.pop('trial_project', '/project')
                 prompt = expected.pop('trial_prompt', 'Check the change.')
+                plugin = expected.pop('trial_plugin', '/plugin')
                 with self.subTest(host=name, sample=sample.name), tempfile.TemporaryDirectory() as tmp:
-                    t = trial(Path(tmp), prompt=prompt, project=project)
+                    t = trial(Path(tmp), prompt=prompt, project=project, plugin=plugin)
                     shutil.copy(sample, t.trace)
                     evidence = adapter.collect(t)
                     self.assertEqual(validate_evidence(evidence), [])
                     for key, value in expected.items():
                         self.assertEqual(evidence[key], value, key)
+                    found = runner.isolation_findings(adapter, t, evidence)
                     if foreign is not None:
-                        self.assertEqual(adapter.foreign_skills(t, evidence), foreign)
-                    self.assertEqual(adapter.unknown_skills(t, evidence), unknown)
+                        self.assertEqual(found.get('foreign_skills', []), sorted(set(foreign)))
+                    self.assertEqual(found.get('unknown_skills', []), sorted(set(unknown)))
                     process = {'exit': 0 if status in ('completed', 'trace_incomplete') else 1,
                                'started': 0, 'ended': 1}
                     self.assertEqual(adapter.classify(process, evidence, ''), status)
@@ -95,6 +99,26 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                 self.assertIn('model-x', command)
                 self.assertEqual(adapter.pin('model-x', 'low'), adapter.pin('model-x', 'low'))
                 self.assertNotEqual(adapter.pin('model-x', 'low'), adapter.pin('model-y', 'low'))
+
+    def test_no_skill_trial_loads_no_plugin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'project').mkdir()
+            t = Trial(root / 'trial', root / 'project', None, 'Check it.', 'model-x', 'low', 60)
+            t.directory.mkdir()
+            self.assertNotIn('--plugin-dir', hosts.get('claude').command(t))
+            evidence = {'skills': ['demo-plugin:demo'], 'commands': []}
+            for adapter in hosts.available().values():
+                self.assertTrue(adapter.supports_no_plugin, adapter.name)
+                self.assertEqual(runner.isolation_findings(adapter, t, evidence),
+                                 {'foreign_skills': ['demo-plugin:demo']})
+            with mock.patch.object(codex, 'homes', lambda: root / 'homes'), \
+                    mock.patch.object(codex, '_source_auth', return_value=root / 'missing.json'):
+                self.assertIsNone(codex.ADAPTER.prepare(t))
+                shutil.rmtree(t.state['home'])
+            self.assertFalse((root / 'project/.agents').exists())
+            read = {'skill_reads': [{'path': '/x/.agents/skills/demo/SKILL.md', 'cwd': '.'}]}
+            self.assertEqual(codex.ADAPTER.foreign_skills(t, read), ['/x/.agents/skills/demo/SKILL.md'])
 
     def test_environment_keeps_temporary_files_in_project_scratch(self):
         for name, adapter in hosts.available().items():

@@ -26,7 +26,8 @@ An error prints `{"ok": false, "error": "...", "exit": 2}` on stdout, with
 the exit code it names.
 
 The final document of `run`, `compare`, and `regrade` has `run_dir`,
-`stopped_early`, `regressed` (a list of `"<case> <host>"`), and `summary`.
+`stopped_early`, `regressed` (a list of `"<case> <host>"`), and `summary`, whose
+`revisions` maps each arm to the revision it ran.
 `seatrial schema --json` prints the case, evidence, status, verdict, and
 exit-code contract.
 
@@ -39,6 +40,9 @@ exit-code contract.
    the skill edit is final, and report them apart from the tuning cases.
    A case whose `error` is not null cannot load its `case.py`; report the error
    and leave the case out.
+   To measure whether a skill helps at all, compare with `--base NONE`. Text
+   reports label that arm `none`; JSON keeps `base` and sets
+   `summary.revisions.base.name` to `"NONE"`.
 3. Print the plan with `--dry-run --json`. Confirm that `count` fits the task's
    budget before any native call. A selected case that cannot load stops the
    plan with exit 2 and names the case.

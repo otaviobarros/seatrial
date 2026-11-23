@@ -2,7 +2,8 @@
 
 Isolation: each trial gets its own CODEX_HOME holding a copy of the login, and its
 own HOME, so user configuration and user-level skills (~/.agents) never load. The
-plugin is copied to `<project>/.agents`, where Codex discovers project skills. The
+plugin is copied to `<project>/.agents`, where Codex discovers project skills; the
+NONE revision copies nothing. The
 sandbox writes only inside the project, including its `.git`; `.agents` stays read-only.
 Delegated sessions do not appear in the parent's JSON stream; their rollouts in the
 private CODEX_HOME are read before it is deleted.
@@ -31,6 +32,7 @@ def _source_auth():
 class Codex(HostAdapter):
     name = 'codex'
     default_model = 'gpt-6-luna'
+    supports_no_plugin = True
     pass_env = ('OPENAI_*', 'AZURE_OPENAI_*')
 
     def version(self):
@@ -44,8 +46,10 @@ class Codex(HostAdapter):
         return f'${skill}'
 
     def prepare(self, trial):
-        installed = trial.project / '.agents'
-        shutil.copytree(trial.plugin, installed)
+        installed = None
+        if trial.plugin is not None:
+            installed = trial.project / '.agents'
+            shutil.copytree(trial.plugin, installed)
         home = homes() / secrets.token_hex(6)
         (home / 'codex').mkdir(parents=True, mode=0o700)
         (home / 'user').mkdir(mode=0o700)
@@ -192,6 +196,8 @@ def _reads(evidence):
 
 def _origin(trial, read):
     """'installed', 'foreign', or 'unknown' for one SKILL.md read."""
+    if trial.plugin is None:  # Nothing was installed: every skill read is foreign.
+        return 'foreign'
     if read['path'].startswith('~'):  # HOME is private and empty: never the installed plugin.
         return 'foreign'
     path = Path(read['path'])

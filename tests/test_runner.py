@@ -42,6 +42,7 @@ def grade(project, evidence):
 class Fake(HostAdapter):
     name = 'fake'
     default_model = 'fake-model'
+    supports_no_plugin = True
 
     def version(self):
         return 'fake 1.0'
@@ -129,6 +130,78 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertIn('| demo-002 | fake | head |', out)
         ok, out = self.cli('report', 'latest', '--json')
         self.assertEqual(json.loads(out)['run_dir'], str(work))
+
+    def test_dry_run_names_the_no_skill_arm(self):
+        ok, out = self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--n', '1', '--dry-run')
+        self.assertTrue(ok, out)
+        self.assertIn('base=NONE', out)
+
+    def test_no_skill_baseline_shows_the_skill_improves_results(self):
+        class SkillOnly(Fake):
+            def command(self, trial):  # Writes the file only when the prompt invokes the skill.
+                prompt = trial.prompt if trial.prompt.startswith('/') else 'fail ' + trial.prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        host, prompts = SkillOnly(), []
+        prepare = host.prepare
+        host.prepare = lambda trial: prompts.append((trial.plugin, trial.prompt)) or prepare(trial)
+        with mock.patch.object(hosts, 'get', lambda name: host):
+            ok, out = self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--host', 'fake', '--n', '10')
+        self.assertTrue(ok, out)
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        base = [r for r in records if r['arm'] == 'base']
+        self.assertEqual(len(base), 10)
+        self.assertEqual({r['revision']['name'] for r in base}, {'NONE'})
+        self.assertFalse(any(r['pass'] for r in base))
+        self.assertTrue(all(r['pass'] for r in records if r['arm'] == 'head'))
+        self.assertEqual(sum(plugin is None for plugin, _ in prompts), 10)
+        self.assertTrue(all(prompt == 'Write hello.txt.' for plugin, prompt in prompts if plugin is None))
+        summary = json.loads((work / 'summary.json').read_text())
+        self.assertEqual(summary['cases']['demo-001']['hosts']['fake']['decision']['verdict'], 'improved')
+        ok, out = self.cli('regrade', str(work))
+        self.assertTrue(ok, out)
+        ok, out = self.cli('report', str(work), '--format', 'markdown')
+        self.assertIn('| demo-001 | fake | none |', out)
+
+    def test_run_without_the_skill_combines_with_holdout(self):
+        toml = self.cfg.cases / 'demo/demo-002/case.toml'
+        toml.write_text(toml.read_text() + 'holdout = true\n')
+        ok, out = self.cli('run', '--rev', 'NONE', '--holdout', '--host', 'fake', '--n', '1')
+        self.assertTrue(ok, out)
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        self.assertEqual([(r['case_id'], r['revision']['name']) for r in records], [('demo-002', 'NONE')])
+        ok, out = self.cli('report', str(work), '--format', 'markdown')
+        self.assertIn('| demo-002 | fake | none |', out)
+
+    def test_a_baseline_trial_that_loads_a_skill_is_contaminated_and_not_graded(self):
+        class Leaky(Fake):
+            def collect(self, trial):
+                evidence = super().collect(trial)
+                evidence['skills'] = ['demo']  # A user-level copy of the skill under test.
+                return evidence
+
+        with mock.patch.object(hosts, 'get', lambda name: Leaky()):
+            ok, out = self.cli('run', '--rev', 'NONE', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        [record] = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        self.assertEqual((record['status'], record['foreign_skills']), ('contaminated', ['demo']))
+        self.assertNotIn('pass', record)
+
+    def test_none_is_rejected_for_a_host_without_no_plugin_support(self):
+        class PluginOnly(Fake):
+            supports_no_plugin = False
+
+        with mock.patch.object(hosts, 'get', lambda name: PluginOnly()), self.assertRaises(SystemExit) as raised:
+            self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--host', 'fake', '--dry-run')
+        self.assertEqual(raised.exception.code, cli.EXIT['usage'])
+
+    def test_a_lowercase_none_revision_names_the_reserved_spelling(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            cli.main(['--no-color', '--config', str(self.cfg.file), 'run', '--rev', 'none', '--dry-run'])
+        self.assertIn('use NONE for no skill', err.getvalue())
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

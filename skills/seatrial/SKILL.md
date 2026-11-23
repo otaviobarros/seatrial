@@ -63,6 +63,7 @@ user asked for it, with a budget the user set or approved.
    itself.
 3. Measure one revision with `seatrial run`. Measure a skill edit with
    `seatrial compare --base REV`; `--head` defaults to the uncommitted worktree.
+   Measure whether a skill helps at all with `--base NONE`: no plugin, no invocation.
    Held-out cases run only with `--holdout`; run them once, after the edit is final.
 4. Exit 1 means finished trials are kept. Report the reason; rerun only with the
    user's approval.

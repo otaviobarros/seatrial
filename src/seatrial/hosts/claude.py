@@ -4,7 +4,8 @@ Isolation: no setting sources, no MCP servers, no session persistence, a sandbox
 denies network and reads of the evaluated project, and a fixed tool list. Scheduling tools
 (ScheduleWakeup, CronCreate, Monitor) are not offered, so a trial cannot schedule
 extra turns after its report. Background tasks are disabled: an auto-backgrounded
-shell command kept the CLI alive after its final result until the trial timed out. The plugin loads from a mounted copy with --plugin-dir.
+shell command kept the CLI alive after its final result until the trial timed out. The plugin loads from a mounted copy with --plugin-dir;
+the NONE revision passes no --plugin-dir.
 With ANTHROPIC_API_KEY set, each trial gets its own CLAUDE_CONFIG_DIR, so user-level
 skills cannot load. A subscription login lives in the user's config, so trials signed in
 that way keep it, and `foreign_skills` reports any skill from outside the plugin.
@@ -29,6 +30,7 @@ SESSION_VARIABLES = ('CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PO
 class Claude(HostAdapter):
     name = 'claude'
     default_model = 'claude-haiku-5-5'
+    supports_no_plugin = True
     pass_env = ('ANTHROPIC_*', 'CLAUDE_CODE_*', 'CLAUDE_CONFIG_DIR', 'AWS_*', 'CLOUD_ML_REGION',
                 'GOOGLE_APPLICATION_CREDENTIALS', 'VERTEX_REGION_*')
 
@@ -50,7 +52,7 @@ class Claude(HostAdapter):
         settings = {'sandbox': {'enabled': True, 'allowUnsandboxedCommands': False,
                                 'network': {'allowedDomains': []},
                                 'filesystem': {'denyRead': [str(config.current().root)]}}}
-        command = ['claude', '-p', '--plugin-dir', str(trial.plugin),
+        command = ['claude', '-p', *(['--plugin-dir', str(trial.plugin)] if trial.plugin else []),
                    '--setting-sources', '', '--strict-mcp-config',
                    '--mcp-config', str(trial.directory / 'mcp.json'),
                    '--settings', json.dumps(settings), '--permission-mode', 'acceptEdits',

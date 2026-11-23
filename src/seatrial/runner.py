@@ -19,7 +19,7 @@ import time
 from seatrial import config, report
 from seatrial.ports import Trial, validate_evidence
 from seatrial.process import launch
-from seatrial.workspace import check_revision, delta, manifest, mount, new_run_directory, retained
+from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained
 
 STOP = ('usage_limit', 'auth_error')
 
@@ -66,6 +66,8 @@ def _project_base(project):
 
 def _source_manifest(project, installed):
     found = manifest(project, source=True)
+    if installed is None:
+        return found
     try:
         inside = installed.resolve().relative_to(project.resolve())
     except ValueError:
@@ -80,10 +82,12 @@ def isolation_findings(host, trial, evidence):
     Trials run outside the project, so a command with its path means the agent found
     the cases or graders; a grade from such a trial is not a clean measurement."""
     found = {}
-    foreign = host.foreign_skills(trial, evidence)
+    if trial.plugin is None:  # Nothing was installed: every loaded skill is foreign.
+        foreign, unknown = [s for s in evidence['skills'] if s], []
+    else:
+        foreign, unknown = host.foreign_skills(trial, evidence), host.unknown_skills(trial, evidence)
     if foreign:
         found['foreign_skills'] = sorted(set(foreign))[:10]
-    unknown = host.unknown_skills(trial, evidence)
     if unknown:
         found['unknown_skills'] = sorted(set(unknown))[:10]
     root = config.current().root
@@ -102,8 +106,10 @@ def run_trial(job, context):
     directory.mkdir(parents=True)
     effort = context['effort'] or case.effort
     timeout = trial_timeout(case, context)
-    prompt = host.invocation(case.skill) + '\n' + case.build(project)
-    trial = Trial(directory, project, context['mounts'][arm], prompt, context['models'][host.name],
+    plugin = context['mounts'][arm]
+    request = case.build(project)
+    prompt = request if plugin is None else host.invocation(case.skill) + '\n' + request  # NONE: plain request.
+    trial = Trial(directory, project, plugin, prompt, context['models'][host.name],
                   effort, timeout, context['budget_usd'])
     record = {'case_id': case.id, 'case_version': case.version, 'host': host.name, 'arm': arm,
               'trial_index': job['index'], 'revision': context['revisions'][arm],
@@ -112,7 +118,8 @@ def run_trial(job, context):
     installed = None
     try:
         installed = host.prepare(trial)
-        before = (_source_manifest(project, installed), manifest(project / '.git'), manifest(installed))
+        before = (_source_manifest(project, installed), manifest(project / '.git'),
+                  manifest(installed) if installed else {})
         project_base = _project_base(project)
         started = datetime.datetime.now(datetime.timezone.utc)
         process = launch(host.command(trial), project, host.environment(trial, os.environ),
@@ -126,7 +133,7 @@ def run_trial(job, context):
     evidence.update(project_base=project_base,
                     source_changes=delta(before[0], _source_manifest(project, installed)),
                     git_changed=bool(delta(before[1], manifest(project / '.git'))),
-                    plugin_changed=bool(delta(before[2], manifest(installed))))
+                    plugin_changed=bool(installed and delta(before[2], manifest(installed))))
     (directory / 'evidence.json').write_text(json.dumps(evidence) + '\n')
     stderr = trial.stderr.read_text(errors='replace')[-4000:] if trial.stderr.exists() else ''
     status = host.classify(process, evidence, stderr)
@@ -137,6 +144,8 @@ def run_trial(job, context):
                   delegations=evidence['delegations'], delegation_traces=evidence['delegation_traces'],
                   skills=sorted(set(evidence['skills']))[:20])
     record.update(isolation_findings(host, trial, evidence))
+    if status == 'completed' and trial.plugin is None and record.get('foreign_skills'):
+        status = record['status'] = 'contaminated'  # The baseline ran a skill: not a no-skill measurement.
     if process.get('kill_failed'):  # Leaked processes must be visible, never silent.
         record['kill_failed'] = process['kill_failed']
     if status == 'completed':
@@ -170,7 +179,7 @@ def execute(cases, hosts, revisions, options, on_record=None):
     work = new_run_directory()
     mounts, identities = {}, {}
     for position, (arm, revision) in enumerate(revisions.items()):
-        mounts[arm] = work / f'p{position}'
+        mounts[arm] = None if revision == NONE else work / f'p{position}'
         identities[arm] = mount(revision, mounts[arm])
     context = {'work': work, 'adapters': adapters, 'versions': versions, 'mounts': mounts,
                'revisions': identities, 'models': options['models'], 'effort': options['effort'],

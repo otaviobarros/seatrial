@@ -3,6 +3,7 @@ from statistics import median
 import subprocess
 
 from seatrial import checks, stats
+from seatrial.workspace import NONE
 
 # Statuses that are graded. Every other status is invalid and excluded from pass rates.
 GRADED = ('completed',)
@@ -86,6 +87,12 @@ def summarize(meta, records, cases):
     return summary
 
 
+def arm_label(summary, arm):
+    """The arm as reports show it: `none` for the NONE revision, else the arm name."""
+    revision = (summary.get('revisions') or {}).get(arm) or {}
+    return 'none' if revision.get('name') == NONE else arm
+
+
 def markdown(summary):
     lines = ['| Case | Host | Arm | Valid | Primary pass | All pass | pass^k | Mean wall s | Lines added median | Cost USD | Verdict |',
              '|---|---|---|---|---|---|---|---|---|---|---|']
@@ -93,10 +100,11 @@ def markdown(summary):
         for host, result in entry['hosts'].items():
             verdict = (result.get('decision') or {}).get('verdict', '-')
             for arm, s in result['arms'].items():
+                label = arm_label(summary, arm)
                 pow_k = s['pass_pow_k']
                 pow_text = f"{pow_k['value']:.2f} (k={pow_k['k']})" if pow_k['value'] is not None else '-'
                 primary = s['assertion_passes'][entry['primary']]
-                lines.append(f"| {case_id} | {host} | {arm} | {s['valid']}/{s['trials']} | {primary}/{s['valid']} | "
+                lines.append(f"| {case_id} | {host} | {label} | {s['valid']}/{s['trials']} | {primary}/{s['valid']} | "
                              f"{s['all_pass']}/{s['valid']} | {pow_text} | {s['wall_s_mean'] or '-'} | "
                              f"{s['lines_added_median'] if s['lines_added_median'] is not None else '-'} | "
                              f"{s['cost_usd_total'] if s['cost_usd_total'] is not None else '-'} | {verdict} |")
@@ -104,11 +112,12 @@ def markdown(summary):
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
             for arm, s in result['arms'].items():
+                label = arm_label(summary, arm)
                 invalid = {k: v for k, v in s['statuses'].items() if k not in GRADED}
                 if invalid:
-                    failures.append(f'- {case_id} {host} {arm}: invalid trials {invalid}')
+                    failures.append(f'- {case_id} {host} {label}: invalid trials {invalid}')
                 if s.get('isolation_warnings'):
-                    failures.append(f"- {case_id} {host} {arm}: {s['isolation_warnings']} trials used skills "
+                    failures.append(f"- {case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                     'from outside the plugin or of unknown source, or named the project path')
     return '\n'.join(lines + ([''] + failures if failures else []))
 
@@ -121,9 +130,10 @@ def terminal(summary):
         for host, result in entry['hosts'].items():
             decision = result.get('decision') or {}
             for arm, s in result['arms'].items():
+                label = arm_label(summary, arm)
                 pow_k = s['pass_pow_k']
                 primary = s['assertion_passes'][entry['primary']]
-                rows.append([case_id, ui.style(host, 'cyan'), arm, f"{s['valid']}/{s['trials']}",
+                rows.append([case_id, ui.style(host, 'cyan'), label, f"{s['valid']}/{s['trials']}",
                              f"{primary}/{s['valid']}", f"{s['all_pass']}/{s['valid']}",
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
                              s['wall_s_mean'] or '-',
@@ -131,9 +141,9 @@ def terminal(summary):
                              ui.verdict(decision['verdict']) if decision and arm == 'head' else ''])
                 invalid = {k: v for k, v in s['statuses'].items() if k not in GRADED}
                 if invalid:
-                    notes.append(ui.warn(f'{case_id} {host} {arm}: invalid trials {invalid}'))
+                    notes.append(ui.warn(f'{case_id} {host} {label}: invalid trials {invalid}'))
                 if s.get('isolation_warnings'):
-                    notes.append(ui.warn(f"{case_id} {host} {arm}: {s['isolation_warnings']} trials used skills "
+                    notes.append(ui.warn(f"{case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                          'from outside the plugin or of unknown source, or named the project path'))
             if decision.get('reason'):
                 notes.append(ui.info(f"{case_id} {host}: {decision['reason']}"))

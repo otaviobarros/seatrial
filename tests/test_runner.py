@@ -262,7 +262,9 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         evidence = new_evidence()
         evidence['skills'] = ['SKILL.md', 'demo-plugin:other', *Outside().foreign_skills(None, None)]
         evidence['skill_reads'] = [{'path': 'SKILL.md', 'cwd': '.agents/skills/demo'}]
-        self.assertEqual(runner.other_skills(case, Outside(), None, evidence), ['demo-plugin:other'])
+        mounted = types.SimpleNamespace(plugin=Path('/plugin'))
+        self.assertEqual(runner.other_skills(case, Outside(), mounted, evidence), ['demo-plugin:other'])
+        self.assertEqual(runner.other_skills(case, Outside(), types.SimpleNamespace(plugin=None), evidence), [])
 
     def test_unknown_revision_is_a_usage_error_before_any_run_directory(self):
         for extra in (['--dry-run'], []):

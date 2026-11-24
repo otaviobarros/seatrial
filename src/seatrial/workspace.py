@@ -35,9 +35,12 @@ def _skipped(path, mounted=True):
 
 
 def changed_files(ref):
-    """(Git top level, absolute paths) of files that differ between ref and the working tree.
+    """(Git top level, changed paths, unseen inputs) for changes since ref.
 
-    Untracked files count, except caches and files that mounts skip; a rename lists both paths.
+    Compares the merge base of ref and HEAD with the working tree, so `--changed origin/main`
+    is what a branch changed. Untracked files count, except caches and files that mounts skip;
+    a rename lists both paths. Unseen inputs are identity_files and python_path entries outside
+    the repository, whose changes the diff cannot show.
     """
     cfg = config.current()
     try:
@@ -52,14 +55,23 @@ def changed_files(ref):
         if ref.startswith('-'):
             raise subprocess.CalledProcessError(1, 'git')
         commit = git('rev-parse', '--verify', '--quiet', ref + '^{commit}', cwd=top)
-        # Keep -z output whole: a file name may start with a space.
-        tracked = git('diff', '--name-only', '-z', '--no-renames', commit, '--', cwd=top, strip=False)
-        untracked = git('ls-files', '-z', '--others', '--exclude-standard', '--full-name', cwd=top, strip=False)
     except subprocess.CalledProcessError:
         raise ValueError(f'--changed {ref}: not a Git revision in {top}') from None
+    try:
+        base = git('merge-base', commit, 'HEAD', cwd=top)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'--changed {ref}: no common ancestor with HEAD') from None
+    try:
+        # Keep -z output whole: a file name may start with a space.
+        tracked = git('diff', '--name-only', '-z', '--no-renames', base, '--', cwd=top, strip=False)
+        untracked = git('ls-files', '-z', '--others', '--exclude-standard', '--full-name', cwd=top, strip=False)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'--changed {ref}: cannot list changes in {top}') from None
     paths = (Path(p) for p in (tracked + '\0' + untracked).split('\0') if p)
     cases = cfg.cases.resolve()
-    return top, sorted({top / p for p in paths if not _skipped(p, mounted=not (top / p).is_relative_to(cases))})
+    changed = sorted({top / p for p in paths if not _skipped(p, mounted=not (top / p).is_relative_to(cases))})
+    unseen = [p for p in [*cfg.identity_files, *cfg.python_path] if not Path(p).resolve().is_relative_to(top)]
+    return top, changed, unseen
 
 
 def source():

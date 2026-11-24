@@ -178,8 +178,9 @@ Cases marked `trigger = "auto"` test whether the agent loads the skill on its
 own; see [trigger modes](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#trigger-modes).
 
 `--changed REF` selects the cases that files changed since `REF` affect, so CI
-can run only the cases of the skills a pull request touches. It compares `REF`
-with the working tree, untracked files included, and selects:
+can run only the cases of the skills a pull request touches. It compares the
+merge base of `REF` and `HEAD` with the working tree, untracked files included,
+so `--changed origin/main` sees only the branch's own changes. It selects:
 
 - the cases of a skill whose folder changed;
 - a case whose own folder or `shared` path changed;
@@ -187,7 +188,9 @@ with the working tree, untracked files included, and selects:
   file in the skills folder outside any skill, or a `_` folder that cases of
   several skills share changed.
 
-`seatrial.toml`, the skills, and the cases must share one Git repository. A
+`seatrial.toml`, the skills, and the cases must share one Git repository. An
+`identity_files` or `python_path` entry outside it gets a warning on stderr,
+because its changes cannot be seen. A
 skill change does not select the cases of other skills that invoke it; add
 `--skill` for those. `list --json` and `run --dry-run --json` give each case's
 reasons in `selected_because`. When no case is affected, seatrial prints `no affected cases`

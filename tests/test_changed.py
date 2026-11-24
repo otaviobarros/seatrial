@@ -128,6 +128,30 @@ class ChangedTests(ProjectCase, unittest.TestCase):
         self.edit('skills/demo/SKILL.md')
         self.assertEqual(self.changed()[1]['demo-001'], ['skill demo'])
 
+    def test_changes_on_ref_after_the_merge_base_are_ignored(self):
+        git(self.root, 'branch', 'upstream')
+        git(self.root, 'checkout', '--quiet', 'upstream')
+        (self.root / 'plugin/skills/other/SKILL.md').write_text('moved on upstream\n')
+        git(self.root, 'commit', '--quiet', '-am', 'test: upstream moves on')
+        git(self.root, 'checkout', '--quiet', '-')
+        self.edit('plugin/skills/demo/SKILL.md')
+        code, out, err = call('--config', str(self.cfg.file), 'list', '--json', '--changed', 'upstream')
+        self.assertEqual(code, 0, err)
+        self.assertEqual({c['id'] for c in json.loads(out)}, {'demo-001', 'demo-002'})
+
+    def test_inputs_outside_the_repository_get_a_warning(self):
+        outside = self.root.parent / 'outside.py'
+        outside.write_text('# identity\n')
+        self.cfg.file.write_text(self.cfg.file.read_text().replace(
+            'identity_files = ["evals/lib.py"]', 'identity_files = ["evals/lib.py", "../outside.py"]'))
+        git(self.root, 'commit', '--quiet', '-am', 'test: identity file outside the repository')
+        self.edit('plugin/skills/demo/SKILL.md')
+        code, out, err = call('--config', str(self.cfg.file), 'list', '--json', '--changed', 'HEAD')
+        self.assertEqual(code, 0, err)
+        self.assertEqual({c['id'] for c in json.loads(out)}, {'demo-001', 'demo-002'})
+        self.assertIn(f'cannot see changes to {outside}', err)
+        self.assertNotIn('lib.py', err)
+
     def test_dry_run_shows_why_each_case_runs(self):
         self.edit('plugin/skills/other/SKILL.md')
         code, out, err = call('--config', str(self.cfg.file), 'run', '--dry-run', '--json', '--host', 'claude',

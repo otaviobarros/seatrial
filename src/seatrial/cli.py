@@ -171,7 +171,10 @@ def selected(parser, args, holdout):
     try:
         cases = case_index.discover()
         if args.changed is not None:
-            top, paths = workspace.changed_files(args.changed)
+            top, paths, unseen = workspace.changed_files(args.changed)
+            for path in unseen:
+                print(ui.warn(f'--changed cannot see changes to {path}: it is outside the Git repository'),
+                      file=sys.stderr)
             args.because = case_index.affected(cases, paths, top)
         found = case_index.select(cases, args.case, args.skill, args.rule, args.suite, args.host,
                                   holdout, args.because)

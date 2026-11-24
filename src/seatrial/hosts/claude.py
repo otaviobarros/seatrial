@@ -108,14 +108,23 @@ def _relative(path, project):
         return str(path)
 
 
+def _failed_results(event):
+    """Tool results in one user event that the host marked `is_error`."""
+    content = (event.get('message') or {}).get('content')
+    if not isinstance(content, list):
+        return 0
+    return sum(1 for block in content if isinstance(block, dict)
+               and block.get('type') == 'tool_result' and block.get('is_error') is True)
+
+
 def parse_stream(path, project='.', prompt=''):
-    """Commands, edits, tool calls, delegations, usage, and errors from a stream-json trace.
+    """Commands, edits, tool calls, failed tool results, delegations, usage, and errors from a stream-json trace.
 
     The final message is the last `result` event: a run that waits for a background
     subagent emits one result per turn, and only the last one ends the process.
     A prompt that starts with `/<skill>` expands that skill without a Skill call, so the
     skill counts as loaded when the init event lists it as a slash command."""
-    out = new_evidence() | {'tools': []}
+    out = new_evidence() | {'tools': [], 'tool_errors': 0}
     path = Path(path)
     if not path.exists():
         return out
@@ -150,6 +159,8 @@ def parse_stream(path, project='.', prompt=''):
                     out['skills'].append(str(data.get('skill') or data.get('command') or ''))
                 elif name == 'Read' and str(data.get('file_path', '')).endswith('SKILL.md'):
                     out['skills'].append(str(data['file_path']))
+        elif kind == 'user':
+            out['tool_errors'] += _failed_results(event)
         elif kind == 'result':
             results.append(event)
             for model, usage in (event.get('model_usage_since_last_result') or {}).items():

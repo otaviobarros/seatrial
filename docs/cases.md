@@ -224,8 +224,8 @@ folder), and `SHARED` (`{file stem: module or folder}`).
 
 `evidence` holds the keys of `EVIDENCE_KEYS` in `seatrial/ports.py`: commands,
 edited files, skills loaded, final message, delegations, usage, cost, errors,
-and `terminal`. The Claude and Codex adapters also return `tools`, from
-`OPTIONAL_EVIDENCE_KEYS`.
+and `terminal`. The Claude and Codex adapters also return `tools` and
+`tool_errors`.
 
 `tools` lists every tool call in call order as `{"name": ..., "input": {...}}`,
 with delegated sessions' calls where they ran. Calls to a
@@ -239,6 +239,10 @@ is in neither. Its stream reports a spawn only as started, so check delegation
 with `delegated(evidence)`, not `spawn_agent`. Codex places a delegated call by
 the time it completed, from the session rollouts; without the parent's rollout,
 delegated calls follow the parent's calls.
+
+`tool_errors` counts the tool calls in `tools` that the host marked as failed:
+Claude tool results with `is_error`, and Codex items with status `failed`, such
+as a command with a nonzero exit or an MCP call that returned an error.
 
 When evidence has no `tools`, as on runs recorded before it existed or on a host
 that cannot show tool calls, `tool_used`, `tool_order`, and `steps_at_most` fail

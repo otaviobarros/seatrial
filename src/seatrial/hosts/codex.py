@@ -104,6 +104,7 @@ class Codex(HostAdapter):
             evidence['delegations'] = max(evidence['delegations'], children['sessions'])
             evidence['commands'] += children['commands']
             evidence['file_changes'] += children['file_changes']
+            evidence['tool_errors'] += children['tool_errors']
             evidence['tools'] = interleave(evidence['tools'], parent_calls(home / 'codex'),
                                            children['tools'])
             evidence['skills'] += children['skills']
@@ -266,9 +267,14 @@ def tool_call(item):
     return None
 
 
+def failed(item):
+    """1 when Codex marks a tool call failed: a nonzero exit, or an MCP error result."""
+    return int(str(item.get('status') or '').lower() == 'failed')
+
+
 def parse_stream(path):
-    """Commands, edits, tool calls, delegations, usage, and errors from a `codex exec --json` stream."""
-    out = new_evidence() | {'tools': []}
+    """Commands, edits, tool calls, failed calls, delegations, usage, and errors from a `codex exec --json` stream."""
+    out = new_evidence() | {'tools': [], 'tool_errors': 0}
     collab, receivers, spawns = False, set(), 0
     path = Path(path)
     if not path.exists():
@@ -288,6 +294,7 @@ def parse_stream(path):
             item = event.get('item') or {}
             if (call := tool_call(item)) is not None:
                 out['tools'].append(call)
+                out['tool_errors'] += failed(item)
             if item.get('type') == 'command_execution':
                 command = str(item.get('command', ''))
                 out['commands'].append(command)
@@ -373,9 +380,9 @@ def interleave(stream, parent, children):
 
 
 def child_traces(codex_home):
-    """Commands, file edits, and timed tool calls from delegated sessions in a private CODEX_HOME."""
+    """Commands, file edits, timed tool calls, and failed calls from delegated sessions in a private CODEX_HOME."""
     commands, changes, sessions, found_reads = [], [], 0, {'skills': [], 'skill_reads': []}
-    calls = []
+    calls, errors = [], 0
     for delegated, lines in _rollouts(codex_home):
         if not delegated:
             continue
@@ -384,6 +391,7 @@ def child_traces(codex_home):
             call = tool_call(item)
             if call is not None:
                 calls.append((stamp, call))
+                errors += failed(item)
             command = item.get('command')
             if command:
                 text = shlex.join(command) if isinstance(command, list) else str(command)
@@ -395,7 +403,7 @@ def child_traces(codex_home):
             elif isinstance(found, list):
                 changes += [str(c.get('path', '')) for c in found if isinstance(c, dict)]
     return {'sessions': sessions, 'commands': commands, 'file_changes': changes, 'tools': calls,
-            **found_reads}
+            'tool_errors': errors, **found_reads}
 
 
 ADAPTER = Codex()

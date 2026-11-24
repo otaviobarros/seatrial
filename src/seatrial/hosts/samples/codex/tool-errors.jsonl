@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"01a20fea-aa61-75d1-8895-567a60415f42"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'ls /nonexistent-seatrial-dir'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'ls /nonexistent-seatrial-dir'","aggregated_output":"ls: /nonexistent-seatrial-dir: No such file or directory\n","exit_code":1,"status":"failed"}}
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"tracker","tool":"get_issue","arguments":{"id":"7"},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"tracker","tool":"get_issue","arguments":{"id":"7"},"result":{"content":[{"type":"text","text":"No such issue."}],"structured_content":null},"error":null,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"DONE"}}
+{"type":"turn.completed","usage":{"input_tokens":52248,"cached_input_tokens":47616,"cache_write_input_tokens":0,"output_tokens":124,"reasoning_output_tokens":0}}

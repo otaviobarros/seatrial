@@ -46,6 +46,18 @@ real false-positive rate is at or below 5%, so a verdict that rests on a p-value
 errs toward caution. A zero-tolerance `regressed` rests on one failure, not on a
 test: a flaky failure triggers it.
 
+### Many comparisons
+
+Each assertion, case, and host is a separate test, so a large run makes many.
+`--correction holm` or `--correction bh` adjusts the p-values across the run
+before the verdict rule reads them; the rule then compares the adjusted p-value
+with 0.05. Holm controls the chance of any false verdict; Benjamini-Hochberg
+controls the share of false verdicts among the significant ones and keeps more
+power. The family counts only tests whose margins can reach p < 0.05: 10/10
+against 10/10 cannot, so it stays out. A verdict the correction changed shows
+`*`, keeps the raw verdict in `verdict_uncorrected`, and the interpretation is
+rebuilt from the corrected verdict.
+
 ## Precision: Wilson score intervals
 
 For c passes in n trials, with rate p̂ = c / n and z = 1.96 for 95% confidence,
@@ -76,10 +88,11 @@ at 10 trials, ±17 at 30, and ±10 at 100: quadrupling the trials roughly halves
 
 When the primary difference is not significant, seatrial estimates how many
 trials per revision a test would need to detect the observed difference with 80%
-power at a two-sided 5% level. With base rate p₁, head rate p₂, and p̄ their mean:
+power at a two-sided level α, 5% by default. With base rate p₁, head rate p₂,
+p̄ their mean, and z the two-sided normal quantile for α (1.96 at 5%):
 
 ```text
-n = ( 1.96·√(2·p̄(1 − p̄)) + 0.8416·√(p₁(1 − p₁) + p₂(1 − p₂)) )² / (p₁ − p₂)²
+n = ( z·√(2·p̄(1 − p̄)) + 0.8416·√(p₁(1 − p₁) + p₂(1 − p₂)) )² / (p₁ − p₂)²
 ```
 
 This is the standard normal-approximation sample size for two proportions; for
@@ -90,6 +103,11 @@ the run could have detected instead: about 59 points from a 70% base at 10 trial
 
 For `inconclusive`, the estimate sizes the assertion with the largest drop rather
 than the primary assertion.
+
+Under a correction, α is 0.05 divided by the family size, a Bonferroni bound
+that is conservative for Holm and Benjamini-Hochberg, and the interpretation
+records it in `alpha`. For 60% against 80% across a family of five tests, α is
+0.01 and the estimate rises from 82 to about 122 trials.
 
 A result is `underpowered` when the difference is not significant and the run had
 fewer trials than `trials_needed`. A `non-inferior` result with equal rates is not
@@ -108,6 +126,8 @@ trial count; a difference that small does not show the revisions are equivalent.
 | `not_significant` | p ≥ 0.05 | No detected effect; if `underpowered`, the run was too small to decide |
 | `insufficient_trials` | Too many invalid trials | Fix the invalid statuses, then run again |
 
+Under a correction, the p-value in this table is the adjusted one.
+
 Overlapping intervals and a non-significant p-value mean the run cannot tell the
 revisions apart. That is not evidence that they behave the same: at 10 trials only
 large changes are visible. `non-inferior, underpowered` reads as "no drop of more
@@ -123,8 +143,9 @@ trials", not as an improvement.
 - Trials are independent and run under the same conditions. seatrial alternates
   revisions so that time and load affect both alike.
 - Each assertion, case, and host is a separate test. Across 20 comparisons of
-  identical revisions, about one can reach p < 0.05 by chance. Confirm a
-  surprising verdict with a second run.
+  identical revisions, about one can reach p < 0.05 by chance. Use
+  `--correction holm` or `--correction bh` for a run with many comparisons, or
+  confirm a surprising verdict with a second run.
 - The trial estimate sizes one assertion: the primary one, or for `inconclusive`
   the one with the largest drop.
 - Verdicts are advisory, not merge gates. `--fail-on-regression` is the only exit

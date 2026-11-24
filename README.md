@@ -127,8 +127,8 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `run [--rev REV]` | Run cases against one skill revision |
 | `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
 | `runs` | List retained run directories, newest first |
-| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary |
-| `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls |
+| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method |
+| `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls; `--correction` to change the run's method |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
 | `interactive` | Menu-driven mode; also the default with no arguments on a terminal |
@@ -209,6 +209,7 @@ and exits 5.
 | `--max-cost-usd` total host-reported cost | none | none |
 | `--budget-usd` per-trial cap (Claude only) | none | none |
 | `--trigger explicit\|auto`; `auto` sends the request without the skill invocation | case `trigger`, `explicit` | none |
+| `--correction none\|holm\|bh`; adjusts Fisher p-values across the run | `none` | none |
 
 </details>
 
@@ -254,6 +255,30 @@ to stderr, so stdout holds only the Markdown. `--summary-file PATH` also appends
 that Markdown to a file, such as a CI job summary.
 [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
 has recipes for GitHub Actions, GitLab CI, Azure Pipelines, and any other platform.
+
+### Many cases at once
+
+Each verdict tests every assertion at p < 0.05. A run with 20 cases and 3
+assertions makes 60 tests, and each test can give a false `regressed` or
+`improved` verdict up to 5% of the time when nothing changed, so false verdicts
+add up as cases grow. `--correction` adjusts the p-values across the run's
+Fisher tests before the verdict rules apply:
+
+| Value | Controls | Choose it when |
+|---|---|---|
+| `none` | Nothing; each test at p < 0.05 (default) | Few cases, or you read verdicts by hand |
+| `holm` | The chance of any false verdict in the run | `--fail-on-regression` gates CI on a small, stable suite |
+| `bh` | The share of false verdicts among the significant ones | Many cases, screening for where to look |
+
+The family leaves out tests that cannot reach p < 0.05 with their pass counts,
+such as 10/10 against 10/10; they keep their raw p-value. Decisions with too
+few valid trials have no p-values and stay outside the family. A new
+zero-tolerance failure stays `regressed` under every method, though its
+p-values still count in the family. A verdict the correction changed shows
+`*`, and `summary.json` keeps
+it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
+method to a stored run without new trials. Cases whose two runs of the same
+revision often disagree need a stricter method, or more trials.
 
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">

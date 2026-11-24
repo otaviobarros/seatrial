@@ -88,8 +88,15 @@ def add_run_options(parser):
     parser.add_argument('--dry-run', action='store_true', help='Print the trial plan; make no native calls')
     parser.add_argument('--fail-on-regression', action='store_true',
                         help=f'Exit {EXIT["regressed"]} when a comparison verdict is "regressed"')
+    add_correction(parser)
     add_format(parser)
     add_json(parser)
+
+
+def add_correction(parser, default='none'):
+    parser.add_argument('--correction', choices=stats.CORRECTIONS, default=default,
+                        help='Adjust Fisher p-values across all cases and hosts: holm (family-wise) or bh '
+                             '(false discovery rate); default ' + (default or 'as stored'))
 
 
 def add_format(parser):
@@ -149,6 +156,7 @@ def build_parser():
         sub.add_argument('run_dir', nargs='?', default='latest', help='Run directory, or latest (default)')
         if name == 'report':
             add_format(sub)
+        add_correction(sub, default=None)
         add_json(sub)
     hosts = commands.add_parser('hosts', help='List host adapters')
     hosts.add_argument('--no-probe', action='store_true', help='Skip host CLI version calls')
@@ -346,7 +354,7 @@ def command_trials(parser, args, revisions):
         return EXIT['ok']
     options = {'n': values['n'], 'models': models, 'effort': args.effort, 'timeout': args.timeout,
                'jobs': values['jobs'], 'max_minutes': values['max_minutes'], 'max_cost_usd': args.max_cost_usd,
-               'budget_usd': args.budget_usd, 'trigger': args.trigger}
+               'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction}
     if not args.json:
         print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'), file=chatter(args))
     try:
@@ -357,7 +365,9 @@ def command_trials(parser, args, revisions):
 
 
 def publish(args, meta, records, chosen, work, name='summary.json'):
-    summary = report.summarize(meta, records, chosen)
+    correction = (getattr(args, 'correction', None) or meta.get('correction')
+                  or (meta.get('multiple_comparisons') or {}).get('method') or 'none')
+    summary = report.summarize(meta, records, chosen, correction)
     (work / name).write_text(json.dumps(summary, indent=2) + '\n')
     regressed = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
                  if (r.get('decision') or {}).get('verdict') == 'regressed']
@@ -414,6 +424,8 @@ def command_report(parser, args):
     if not path.exists():
         parser.error(f'{work} has no summary; the run may still be going, or it stopped: run `seatrial regrade {work}`')
     summary = json.loads(path.read_text())
+    if args.correction:
+        summary = report.correct(summary, args.correction)
     emit(args, {'run_dir': str(work), 'summary': summary}, report.render(summary, args.format))
     append_summary(args, summary)
     return EXIT['ok']
@@ -483,17 +495,34 @@ def command_schema(parser, args):
                      'auto': 'the prompt is the request alone; the plugin stays mounted'},
         'built_in_assertions': {'skill_triggered': 'the trace shows the case skill; declare it under assertions to use it'},
         'verdicts': ['improved', 'non-inferior', 'regressed', 'inconclusive'],
+        'corrections': {'none': 'raw Fisher p-values (default)',
+                        'holm': 'Holm step-down; controls the family-wise error rate',
+                        'bh': 'Benjamini-Hochberg; controls the false discovery rate'},
+        'summary_fields': {
+            'multiple_comparisons': '{method: str, family_size: int, alpha: float}; the family leaves out '
+                                    'tests whose pass counts cannot reach p < alpha',
+            'cases.<id>.hosts.<host>.decision.p_values': '{assertion: float}, raw Fisher p-values; absent when '
+                                                         'the decision has a reason',
+            'cases.<id>.hosts.<host>.decision.adjusted_p_values': '{assertion: float}; present when p_values is '
+                                                                  'and method is not none; equals the raw value '
+                                                                  'for a test outside the family',
+            'cases.<id>.hosts.<host>.decision.verdict_uncorrected': 'str; present only when the correction '
+                                                                    'changed the verdict'},
         'evidence_levels': list(stats.EVIDENCE),
         'interpretation_fields': {
-            'verdict': 'the decide() verdict, unchanged', 'evidence': 'one of evidence_levels',
-            'deciding_assertion': 'str | None', 'deciding_p_value': 'float | None (Fisher)',
+            'verdict': 'the final decision verdict, after any correction', 'evidence': 'one of '
+            'evidence_levels; strong is gate p < alpha / 5, significant is gate p < alpha',
+            'deciding_assertion': 'str | None',
+            'deciding_p_value': 'float | None: the gate p-value, adjusted when a correction ran, else Fisher',
             'primary': '{assertion, base, head, difference, p_value, intervals_overlap}; base and head are '
                        '{passes, valid, rate, ci: [low, high], margin}',
             'underpowered': 'bool: not significant, and the run had fewer trials than the observed change needs',
-            'trials_needed': 'int | None: trials per revision to detect the observed change with 80% power, on '
-                             'the primary assertion or, for inconclusive, on deciding_assertion',
+            'trials_needed': 'int | None: trials per revision to detect the observed change with 80% power at '
+                             'alpha, on the primary assertion or, for inconclusive, on deciding_assertion',
             'detectable_change': 'float | None: smallest change the run could detect, on the trials_needed '
                                  'assertion',
+            'alpha': 'float: per-test threshold for trials_needed; 0.05, or 0.05 / family_size under a '
+                     'correction',
             'explanation': 'str', 'recommendation': 'str | None'},
         'report_formats': list(report.FORMATS),
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',

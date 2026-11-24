@@ -43,6 +43,7 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(stats.trials_needed(0.6, 0.8), 82)  # Standard two-proportion sample size.
         self.assertEqual(stats.trials_needed(0.8, 0.6), 82)
         self.assertIsNone(stats.trials_needed(0.7, 0.7))
+        self.assertEqual(stats.trials_needed(0.6, 0.8, alpha=0.01), 122)  # A family of five under a correction.
         self.assertIsNone(stats.detectable_change(0.5, 10))
         self.assertEqual(stats.detectable_change(0.5, 11), 0.5)
         self.assertEqual(stats.detectable_change(0.7, 10), 0.59)
@@ -123,6 +124,40 @@ class StatsTests(unittest.TestCase):
         # 7/9 against 2/9 has p = 0.0567: just above the threshold in both directions.
         self.assertEqual(decide(7, 2)['verdict'], 'inconclusive')
         self.assertEqual(decide(2, 7)['verdict'], 'non-inferior')
+
+    def test_holm_and_benjamini_hochberg_match_reference_values(self):
+        p = [0.01, 0.04, 0.03, 0.005]
+        for got, want in zip(stats.holm(p), [0.03, 0.06, 0.06, 0.02]):
+            self.assertAlmostEqual(got, want)
+        for got, want in zip(stats.benjamini_hochberg(p), [0.02, 0.04, 0.04, 0.02]):
+            self.assertAlmostEqual(got, want)
+        self.assertEqual(stats.holm([0.02, 0.02]), [0.04, 0.04])  # Ties keep their order and value.
+        self.assertEqual(stats.benjamini_hochberg([0.02, 0.02]), [0.02, 0.02])
+        self.assertEqual(stats.holm([0.3]), [0.3])
+        self.assertEqual(stats.benjamini_hochberg([0.3]), [0.3])
+        self.assertEqual(stats.holm([0.6, 0.7]), [1.0, 1.0])  # Capped at 1.
+        self.assertEqual(stats.adjust([], 'holm'), [])
+        self.assertEqual(stats.adjust([0.01, 0.2], 'none'), [0.01, 0.2])
+        with self.assertRaises(ValueError):
+            stats.adjust([0.1], 'bonferroni')
+
+    def test_min_attainable_p_marks_tests_that_cannot_be_significant(self):
+        self.assertEqual(stats.min_attainable_p(10, 10, 10, 10), 1.0)
+        self.assertAlmostEqual(stats.min_attainable_p(9, 9, 9, 9), 1.0)
+        self.assertAlmostEqual(stats.min_attainable_p(10, 10, 9, 10), 1.0)  # One failure anywhere: p >= 1.0.
+        self.assertLess(stats.min_attainable_p(10, 10, 5, 10), 0.05)
+        self.assertLess(stats.min_attainable_p(5, 10, 5, 10), 0.05)
+
+    def test_adjusted_p_values_gate_the_verdict(self):
+        base, head = arm(10, behavior=10), arm(10, behavior=5)  # Raw p = 0.0325.
+        raw = stats.decide(ASSERTIONS, 'behavior', base, head, 10)
+        self.assertEqual(raw['verdict'], 'regressed')
+        self.assertNotIn('adjusted_p_values', raw)
+        corrected = stats.decide(ASSERTIONS, 'behavior', base, head, 10,
+                                 adjusted={'behavior': 0.065, 'preserved': 1.0})
+        self.assertEqual(corrected['verdict'], 'inconclusive')
+        self.assertEqual(corrected['p_values'], raw['p_values'])
+        self.assertEqual(corrected['adjusted_p_values'], {'behavior': 0.065, 'preserved': 1.0})
 
 
 if __name__ == '__main__':

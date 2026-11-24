@@ -221,7 +221,7 @@ def execute(cases, hosts, revisions, options, on_record=None):
                'trigger_override': options.get('trigger'),
                'n': options['n'], 'jobs': options['jobs'], 'max_minutes': options['max_minutes'],
                'max_cost_usd': options['max_cost_usd'], 'budget_usd': options['budget_usd'],
-               'scheduled': len(jobs)}
+               'scheduled': len(jobs), 'correction': options.get('correction')}
     (work / 'run.json').write_text(json.dumps(started, indent=2) + '\n')
     stop, records, lock = threading.Event(), [], threading.Lock()
     deadline = time.monotonic() + options['max_minutes'] * 60

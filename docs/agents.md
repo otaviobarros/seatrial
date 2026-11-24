@@ -37,15 +37,16 @@ and Fisher p-values) and `interpretation`, which reads it for people and tools:
 
 | Field | Value |
 |---|---|
-| `verdict` | Same as `decision.verdict` |
-| `evidence` | `zero_tolerance`, `strong` (p < 0.01), `significant` (p < 0.05), `not_significant`, or `insufficient_trials` |
+| `verdict` | Same as `decision.verdict`, after any correction |
+| `evidence` | `zero_tolerance`, `strong` (p < 0.01), `significant` (p < 0.05), `not_significant`, or `insufficient_trials`; under a correction, p is the adjusted p-value |
 | `primary.base`, `primary.head` | `passes`, `valid`, `rate`, `ci` (95% Wilson `[low, high]`), `margin` (half the interval) |
 | `primary.difference`, `primary.p_value` | Head rate minus base rate; Fisher p on the primary assertion |
 | `primary.intervals_overlap` | `true` when the base and head intervals overlap |
-| `deciding_assertion`, `deciding_p_value` | The assertion the reading rests on and its Fisher p. For `inconclusive`, the assertion with the largest drop. With `zero_tolerance` evidence, the failing zero-tolerance assertion, and the p-value is `null` |
+| `deciding_assertion`, `deciding_p_value` | The assertion the reading rests on and its gate p-value: adjusted under a correction, else Fisher. For `inconclusive`, the assertion with the largest drop. With `zero_tolerance` evidence, the failing zero-tolerance assertion, and the p-value is `null` |
 | `underpowered` | `true` when the difference is not significant and the run had fewer trials than `trials_needed` |
 | `trials_needed` | Trials per revision to detect the observed change with 80% power, on the primary assertion or, for `inconclusive`, on `deciding_assertion`; `null` when there is no change, or with `zero_tolerance` evidence on an `inconclusive` result |
 | `detectable_change` | The smallest change, as a fraction, that the run's trial count could detect in at least one direction, on the same assertion as `trials_needed`; `null` when no change up to 100 points could be detected |
+| `alpha` | The per-test threshold behind `trials_needed`: 0.05, or 0.05 divided by `family_size` under a correction |
 | `explanation`, `recommendation` | The same reading as text; the `markdown` and `comment` formats print these |
 
 Every arm summary also has `primary_ci` and `assertion_ci` (`{assertion: [low, high]}`).
@@ -56,6 +57,16 @@ For a pull request comment, use `--format comment` on `run`, `compare`, or
 directory go to stderr. `--summary-file PATH` appends the same Markdown to PATH
 with any format, with or without `--json`. [Continuous integration](ci.md) has
 platform recipes.
+
+`summary.multiple_comparisons` names the correction (`method`), the number of
+Fisher tests it covered (`family_size`), and `alpha`. The family leaves out
+tests whose pass counts cannot reach p < `alpha`. A decision with a `reason`,
+such as too few valid trials, has no p-values. A new zero-tolerance failure
+stays `regressed` under every method and keeps its p-values in the family.
+Other decisions keep raw `p_values`; with a method other than `none` they add
+`adjusted_p_values`, and `verdict_uncorrected` when the correction changed the
+verdict. A tool should read these fields only when they are present. The `regressed`
+list and exit code 4 use the corrected verdicts.
 
 ## Procedure
 

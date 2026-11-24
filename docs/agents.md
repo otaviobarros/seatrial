@@ -12,6 +12,7 @@ and stdout are a terminal; every value has a flag.
 | 2 | Usage error: bad option, unknown case, or a cap exceeded |
 | 3 | Configuration error, or a failed `doctor` check |
 | 4 | A `regressed` verdict with `--fail-on-regression` |
+| 5 | `--changed REF` found no affected case |
 
 ## JSON output
 
@@ -89,6 +90,9 @@ takes fewer.
    the skill edit is final, and report them apart from the tuning cases.
    A case whose `error` is not null cannot load its `case.py`; report the error
    and leave the case out.
+   To select the cases a change affects, add `--changed REF`, for example
+   `--changed origin/main`; each case then has `selected_because`. Exit 5
+   means no case is affected: report that and run nothing.
    To measure whether a skill helps at all, compare with `--base NONE`. Text
    reports label that arm `none`; JSON keeps `base` and sets
    `summary.revisions.base.name` to `"NONE"`. To measure whether the agent picks

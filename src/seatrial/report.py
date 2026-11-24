@@ -165,6 +165,8 @@ FORMATS = ('table', 'markdown', 'comment')
 # Verdicts in the order the comment report counts and lists them; `none` is a single-revision run.
 VERDICT_ORDER = ('regressed', 'inconclusive', 'non-inferior', 'improved', 'none')
 ATTENTION = ('regressed', 'inconclusive')
+# Keeps a comment under the 65,536-character body limit common to code hosts, with room for the headline.
+COMMENT_DETAILS_LIMIT = 50000
 
 
 def comment(summary):
@@ -187,10 +189,16 @@ def comment(summary):
             meaning = result.get('interpretation') or {}  # Summaries from older versions lack it.
             detail = ' '.join(t for t in (meaning.get('explanation'), meaning.get('recommendation')) if t)
             lines.append(f"- **{verdict_text(result)}** `{case_id}` on {host}" + (f': {detail}' if detail else ''))
+    if summary.get('stopped_early'):
+        lines[:0] = ['**The run stopped early: these are partial results.**', '']
     total = summary.get('cost_usd_total')
     if total is not None:
         lines += ['', f'Total host-reported cost: {total:.2f} USD']
-    lines += ['', '<details>', '<summary>Full results</summary>', '', markdown(summary), '', '</details>']
+    full = markdown(summary)
+    if len(full) > COMMENT_DETAILS_LIMIT:
+        full = ('The full results are too long for one comment. Read them with `seatrial report --format '
+                'markdown`, or in `summary.json`.')
+    lines += ['', '<details>', '<summary>Full results</summary>', '', full, '', '</details>']
     return '\n'.join(lines)
 
 
@@ -214,7 +222,8 @@ def terminal(summary):
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
                              s['wall_s_mean'] or '-',
                              '-' if s['cost_usd_total'] is None else f"{s['cost_usd_total']:.2f}",
-                             ui.verdict(decision['verdict']) if decision and arm == 'head' else ''])
+                             ui.style(verdict_text(result), ui.VERDICT_STYLE.get(decision['verdict'], 'gray'))
+                             if decision and arm == 'head' else ''])
                 invalid = {k: v for k, v in s['statuses'].items() if k not in GRADED}
                 if invalid:
                     notes.append(ui.warn(f'{case_id} {host} {label}: invalid trials {invalid}'))

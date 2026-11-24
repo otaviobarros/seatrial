@@ -36,7 +36,10 @@ seatrial compare --base origin/main --skill my-skill --n 10 --max-cost-usd 5 \
 
 Then post `seatrial.md` with your platform's comment command or API, or keep it
 as a job artifact. Run the post step even when seatrial exits 4, so the comment
-explains the failure.
+explains the failure, and skip it when the file is empty: seatrial then failed
+before it printed a report. A run that stopped early says so on the comment's
+first line. Above about 50,000 characters, the comment replaces the full table
+with a pointer to `seatrial report`.
 
 To gate on more than regressions, read the JSON. This command fails the job when
 any comparison was too small to decide:
@@ -73,13 +76,17 @@ steps:
       --fail-on-regression > seatrial.md
   - name: Comment
     if: always() && github.event_name == 'pull_request'
-    run: gh pr comment ${{ github.event.pull_request.number }} --body-file seatrial.md
+    run: |
+      [ -s seatrial.md ] || exit 0
+      gh pr comment ${{ github.event.pull_request.number }} --body-file seatrial.md
     env:
       GH_TOKEN: ${{ github.token }}
 ```
 
 `GITHUB_STEP_SUMMARY` names the job summary file, so the same Markdown also
-appears on the run page.
+appears on the run page. Pull requests from forks get a read-only token, so the
+Comment step fails there; the job summary still works. An empty `seatrial.md`
+means seatrial failed before it printed: read the Evaluate step's log.
 
 ## GitLab CI
 

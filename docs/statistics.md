@@ -42,8 +42,9 @@ The verdict rule, applied per case and host:
 
 p < 0.05 means a difference this large would appear by chance less than 5% of
 the time if the revisions behaved the same. Fisher's test is conservative: its
-real false-positive rate is at or below 5%, so a verdict of `improved` or
-`regressed` errs toward caution.
+real false-positive rate is at or below 5%, so a verdict that rests on a p-value
+errs toward caution. A zero-tolerance `regressed` rests on one failure, not on a
+test: a flaky failure triggers it.
 
 ## Precision: Wilson score intervals
 

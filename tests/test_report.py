@@ -1,5 +1,6 @@
 """Report formats built from hand-written summaries; no runs."""
 import unittest
+from unittest import mock
 
 from seatrial import report, stats
 
@@ -47,6 +48,16 @@ class CommentFormatTests(unittest.TestCase):
         self.assertIn('| better | fake | head | 10/10 | 9/10 (60–98%) |', details)
         self.assertIn('**How to read the verdicts**', details)
         self.assertTrue(text.endswith('</details>'))
+
+    def test_stopped_early_leads_and_long_details_are_replaced(self):
+        data = summary(similar=comparison(arm(behavior=6), arm(behavior=8)))
+        data['stopped_early'] = True
+        self.assertTrue(report.comment(data).startswith('**The run stopped early'))
+        with mock.patch.object(report, 'COMMENT_DETAILS_LIMIT', 10):
+            text = report.comment(data)
+        self.assertIn('too long for one comment', text)
+        self.assertNotIn('| similar |', text)
+        self.assertIn('non-inferior, underpowered', report.terminal(data))
 
     def test_single_revision_and_older_summaries_render(self):
         old = arm()

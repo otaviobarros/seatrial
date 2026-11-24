@@ -212,8 +212,9 @@ and the command exits 1.
 | `non-inferior` | No assertion drops by more than two trials' worth |
 | `inconclusive` | Otherwise, or fewer than 80% of the trials in a revision are valid |
 
-Ten trials per revision detect a change of about 50 percentage points on the
-primary assertion. With 3 trials, `improved` is not possible. Report a
+Ten trials per revision detect only changes of about 60 percentage points on
+the primary assertion, and none from a 50% pass rate; 30 trials detect about 30
+points. With 3 trials, `improved` is not possible. Report a
 non-significant result as "no detected effect". The report also shows pass^k,
 median lines added, mean wall time, and host-reported cost. Use
 `--fail-on-regression` to exit 4 on any `regressed` verdict.

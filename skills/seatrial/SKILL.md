@@ -80,7 +80,8 @@ Size the trial count to the claim:
 | A revision does not break a behavior | 5 |
 | A revision improves a behavior | 10 |
 
-Ten trials detect a change of about 50 percentage points. With 3 trials
+Ten trials detect only changes of about 60 percentage points, and none from a
+50% pass rate; 30 trials detect about 30 points. With 3 trials
 `improved` is not possible. The summary says how many trials a smaller change
 needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md).
 

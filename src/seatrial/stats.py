@@ -42,8 +42,8 @@ def trials_needed(p1, p2, z_alpha=1.96, z_power=0.8416):
 
 
 def detectable_change(rate, n):
-    """Smallest change from rate, in either direction, that n trials per arm detect with
-    80% power; None when no change within 0..1 is detectable."""
+    """Smallest change from rate that n trials per arm detect with 80% power, in at least one
+    direction (a gain from a high rate may not fit below 1); None when no change within 0..1 is."""
     for points in range(1, 101):
         for other in (rate + points / 100, rate - points / 100):
             if 0 <= other <= 1 and trials_needed(rate, other) <= n:
@@ -115,7 +115,8 @@ def interpret(assertions, primary, base, head, decision):
     elif blocking := [a for a, kind in assertions.items() if kind == 'zero' and head['assertion_passes'][a] < nh]:
         # Head fails a zero-tolerance assertion that base also failed: no regression, but no other verdict.
         names = ', '.join(f'`{a}`' for a in blocking)
-        result.update(evidence='zero_tolerance', deciding_assertion=blocking[0])
+        result.update(evidence='zero_tolerance', deciding_assertion=blocking[0], trials_needed=None,
+                      detectable_change=None)
         result['explanation'] = (f'{names} failed in head, and in base too, so the failure is not new; a '
                                  'zero-tolerance failure in head rules out `improved` and `non-inferior`. '
                                  f'{rates[0].upper()}{rates[1:]}; Fisher p = {p:.3f}.')
@@ -144,12 +145,13 @@ def interpret(assertions, primary, base, head, decision):
         smallest = result['detectable_change']
         result['recommendation'] = (f'A {difference * 100:+.0f}-point change needs more than 1000 trials per '
                                     'revision to detect with 80% power'
-                                    + (f'; at {n} trials this run detects changes of about {smallest * 100:.0f} '
-                                       'points or more.' if smallest else '.'))
+                                    + (f'; at {n} valid trials this run detects changes of about '
+                                       f'{smallest * 100:.0f} points or more, in at least one direction.'
+                                       if smallest else '.'))
     elif result['underpowered']:
-        result['recommendation'] = (f'Run about {needed} trials per revision (`--n {needed}`; raise `[limits] '
-                                    f'max_n` first if it is lower) to detect a {difference * 100:+.0f}-point '
-                                    'change with 80% power.')
+        result['recommendation'] = (f'Run about {needed} valid trials per revision (`--n {needed}` or more, '
+                                    'since invalid trials do not count; raise `[limits] max_n` first if it is '
+                                    f'lower) to detect a {difference * 100:+.0f}-point change with 80% power.')
     return result
 
 

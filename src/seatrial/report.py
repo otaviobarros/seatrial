@@ -180,12 +180,13 @@ def correct(summary, method):
         summary['cases'][case_id]['hosts'][host]['decision'] = decision
     # Trial counts use a Bonferroni bound on the per-test threshold: conservative for holm and bh.
     test_alpha = alpha / len(tests) if method != 'none' and tests else alpha
+    rerun_alpha = test_alpha * stats.ALPHA / alpha if looks else None  # The same design without looks.
     for case_id, host in plain:
         entry = summary['cases'][case_id]
         result = entry['hosts'][host]
         result['interpretation'] = stats.interpret(entry['assertions'], entry['primary'], result['arms']['base'],
                                                    result['arms']['head'], result['decision'],
-                                                   alpha=alpha, test_alpha=test_alpha)
+                                                   alpha=alpha, test_alpha=test_alpha, rerun_alpha=rerun_alpha)
     summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
     if 'correction' in summary:  # Run metadata; keep it in step when report or regrade changes the method.
         summary['correction'] = method
@@ -210,8 +211,10 @@ def sequential_note(summary):
     info = summary.get('sequential')
     if not info:
         return None
-    return (f"sequential: looks {', '.join(map(str, info['looks']))}, threshold {info['threshold']:.4g} per look; "
-            f"{info['trials_run']} of {info['trials_planned']} planned trials run, {info['trials_saved']} saved"
+    family = info.get('stop_family') or 1
+    gate = f" (stops at {info['threshold'] / family:.4g} across {family} tests)" if family > 1 else ''
+    return (f"sequential: looks {', '.join(map(str, info['looks']))}, threshold {info['threshold']:.4g} per look"
+            f"{gate}; {info['trials_run']} of {info['trials_planned']} planned trials run, {info['trials_saved']} saved"
             + (f", {info['trials_skipped']} skipped by a budget or stop" if info.get('trials_skipped') else ''))
 
 

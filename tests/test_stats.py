@@ -177,6 +177,8 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(step(0, 5)['reason'], 'significant')  # p = 0.0079 < 0.025.
         # A correction over four tests could lift p above 0.025, so the gate is 0.025 / 4.
         self.assertEqual(step(0, 5, family=4)['outcome'], 'continue')
+        # Futility uses the undivided 0.025: 2/10 against 8/10 (p = 0.023) can still pass it.
+        self.assertEqual(step(3, 2, family=4)['outcome'], 'continue')
         self.assertEqual(step(5, 5)['reason'], 'futility')  # Even 5/10 against 10/10 has p = 0.0325.
         self.assertEqual(step(2, 2, looks=(3, 10))['outcome'], 'continue')  # 2/10 against 9/10 is still possible.
         last = step(7, 7, looks=(3, 10), index=1)

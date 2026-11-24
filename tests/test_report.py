@@ -100,6 +100,17 @@ class CorrectionTests(unittest.TestCase):
             text = report.comment(dict(data, cost_usd_total=None))
         self.assertIn('Sequential: looks 3, 6, 9', text)
 
+    def test_an_underpowered_sequential_run_recommends_a_fixed_n_rerun(self):
+        data = c_summary([(6, 7)])
+        data['sequential'] = {'looks': [3, 6, 9], 'threshold': 0.05 / 3, 'trials_planned': 18, 'trials_run': 18,
+                              'trials_saved': 0, 'cases': {}}
+        meaning = report.correct(data, 'none')['cases']['demo-000']['hosts']['fake']['interpretation']
+        self.assertTrue(meaning['underpowered'])
+        fixed = stats.trials_needed(6 / 9, 7 / 9)
+        self.assertGreater(meaning['trials_needed'], fixed)  # Sized at the per-look threshold.
+        self.assertIn(f'Run about {fixed} valid trials per revision in a fixed-n run without `--sequential`',
+                      meaning['recommendation'])
+
     def test_decisions_without_p_values_stay_outside_the_family(self):
         data = c_summary([(9, 9)])
         data['cases']['demo-000']['hosts']['fake']['arms']['head'] = c_arm(3, 3)

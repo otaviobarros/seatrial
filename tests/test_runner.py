@@ -312,6 +312,9 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertEqual(decision['sequential']['trials_saved'], 10)
         self.assertEqual(summary['sequential']['trials_run'], 10)
         self.assertEqual(summary['sequential']['trials_planned'], 20)
+        # run.json keeps the stops, so regrade of an interrupted run judges stopped cases at their look.
+        started = json.loads((Path(out.split('run directory (local only): ')[1].strip()) / 'run.json').read_text())
+        self.assertEqual(started['sequential']['cases']['demo-001']['fake']['stopped_at'], 5)
         self.assertEqual(summary['looks'], [5, 10])
         self.assertIn('regressed (n=5 zero_tolerance)', out)
         self.assertIn('10 of 20 planned trials run', out)

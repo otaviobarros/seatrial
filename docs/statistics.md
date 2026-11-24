@@ -118,8 +118,9 @@ than the primary assertion.
 
 A sequential run uses its per-look threshold as α. Under a correction, α is
 also divided by the family size, a Bonferroni bound that is conservative for
-Holm and Benjamini-Hochberg. The interpretation records α in `alpha`. For 60% against 80% across a family of five tests, α is
-0.01 and the estimate rises from 82 to about 122 trials.
+Holm and Benjamini-Hochberg. The interpretation records α in `alpha`. For 60%
+against 80% across a family of five tests, α is 0.01 and the estimate rises
+from 82 to about 122 trials.
 
 A result is `underpowered` when the difference is not significant and the run had
 fewer trials than `trials_needed`. A `non-inferior` result with equal rates is not

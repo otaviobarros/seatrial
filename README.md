@@ -277,8 +277,8 @@ decided:
 
 Undecided cases get the next batch, so trials go where the result is still
 open. Each look tests at 0.05 divided by the number of looks (0.025 for
-`5,10`), which keeps the chance of a false verdict at or below 0.05 across all
-looks. A case that stops early is judged on its trials so far, but its
+`5,10`), which keeps the chance that a Fisher test gives a false result at or
+below 0.05 across all looks. A case that stops early is judged on its trials so far, but its
 non-inferiority margin stays at the planned `--n`. A `futility` stop gives up
 the trials in which a rare zero-tolerance failure might still have appeared;
 use a fixed `--n` for cases where that matters.

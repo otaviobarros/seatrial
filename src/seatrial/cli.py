@@ -366,7 +366,8 @@ def command_trials(parser, args, revisions):
                'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction,
                'looks': values['looks']}
     if not args.json:
-        print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'), file=chatter(args))
+        print(ui.banner('seatrial', f'{len(jobs)} trials' + (' at most' if values['looks'] else '') +
+                        f' on {", ".join(hosts)}'), file=chatter(args))
     try:
         meta, records, work = runner.execute(chosen, hosts, revisions, options, on_record=progress(args))
     except SystemExit as error:

@@ -274,11 +274,14 @@ def execute(cases, hosts, revisions, options, on_record=None):
             raise
         pool.shutdown(wait=True)
 
+    def save_looks(progress):  # An interrupted run keeps its stops for regrade.
+        (work / 'run.json').write_text(json.dumps({**started, 'sequential': progress}, indent=2) + '\n')
+
     looks = options.get('looks')
     sequential = None
     if looks:
         sequential = run_sequential(cases, hosts, arms, looks, records, run_jobs, stop,
-                                    options.get('correction') or 'none')
+                                    options.get('correction') or 'none', on_look=save_looks)
     else:
         run_jobs(jobs)
     meta = {**started, 'finished': len(records), 'stopped_early': stop.is_set() or len(records) < submitted[0]}
@@ -288,17 +291,30 @@ def execute(cases, hosts, revisions, options, on_record=None):
     return meta, records, work
 
 
-def run_sequential(cases, hosts, arms, looks, records, run_jobs, stop, correction='none'):
+def run_sequential(cases, hosts, arms, looks, records, run_jobs, stop, correction='none', on_look=None):
     """Run trials in batches up to each look; stop each case and host once its verdict is clear.
 
     A look whose batch did not run in full (budget, deadline, or a stopping error) ends the
-    run without judging it; those cases keep stopped_at None."""
+    run without judging it; those cases keep stopped_at None. on_look(result) receives the
+    result so far after each judged look."""
     from seatrial import stats
     by_id = {case.id: case for case in cases}
     pending = {(job['case'].id, job['host']) for job in schedule(cases, hosts, arms, looks[0])}
     state = {pair: {'looks': [], 'stopped_at': None, 'stop_reason': None, 'trials_saved': 0} for pair in pending}
     # Under a correction, gate stops as if every assertion of every pair were in the family.
     family = 1 if correction == 'none' else sum(len(by_id[case_id].assertions) for case_id, _ in pending)
+    planned = len(schedule(cases, hosts, arms, looks[-1]))
+
+    def result():
+        cases_out = {}
+        for (case_id, host), entry in state.items():
+            cases_out.setdefault(case_id, {})[host] = entry
+        saved = sum(entry['trials_saved'] for entry in state.values())
+        return {'looks': list(looks), 'rule': 'bonferroni', 'alpha': stats.ALPHA,
+                'threshold': stats.look_threshold(looks), 'stop_family': family, 'trials_planned': planned,
+                'trials_run': len(records), 'trials_saved': saved,
+                'trials_skipped': max(0, planned - len(records) - saved), 'cases': cases_out}
+
     start = 0
     for index, look in enumerate(looks):
         batch = [job for job in schedule(cases, hosts, arms, look, start) if (job['case'].id, job['host']) in pending]
@@ -318,18 +334,12 @@ def run_sequential(cases, hosts, arms, looks, records, run_jobs, stop, correctio
             if step['outcome'] == 'stop':
                 entry.update(stopped_at=look, stop_reason=step['reason'], trials_saved=(looks[-1] - look) * len(arms))
                 pending.discard((case_id, host))
+        if on_look:
+            on_look(result())
         start = look
         if not pending:
             break
-    cases_out = {}
-    for (case_id, host), entry in state.items():
-        cases_out.setdefault(case_id, {})[host] = entry
-    planned = len(schedule(cases, hosts, arms, looks[-1]))
-    saved = sum(entry['trials_saved'] for entry in state.values())
-    return {'looks': list(looks), 'rule': 'bonferroni', 'alpha': stats.ALPHA,
-            'threshold': stats.look_threshold(looks), 'stop_family': family, 'trials_planned': planned,
-            'trials_run': len(records), 'trials_saved': saved,
-            'trials_skipped': max(0, planned - len(records) - saved), 'cases': cases_out}
+    return result()
 
 
 def run_meta(work):

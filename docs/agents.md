@@ -22,6 +22,9 @@ holds one JSON line per finished trial:
 {"event": "trial", "finished": 3, "scheduled": 8, "case_id": "demo-001", "host": "claude", "arm": "head", "trial_index": 1, "status": "completed", "pass": true, "wall_s": 41.2, "cost_usd": 0.03}
 ```
 
+`scheduled` counts the trials submitted so far. In a sequential run it grows with
+each look, so `finished` equal to `scheduled` does not mean the run is complete.
+
 An error prints `{"ok": false, "error": "...", "exit": 2}` on stdout, with
 the exit code it names.
 

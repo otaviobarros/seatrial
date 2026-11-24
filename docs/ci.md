@@ -209,12 +209,36 @@ trial at a time can outlast `limits.max_minutes` and `timeout-minutes`. Raise
 | `comment` | `true` | Post the comment on the pull request |
 | `retention-days` | `14` | Days to keep the run directory artifact; `0` uses the repository setting |
 | `artifact-name` | `seatrial-run-<run id>-<attempt>` | Run directory artifact name; set a distinct one for each call in one workflow run |
+| `env` | none | Non-secret `NAME=VALUE` lines for the host CLIs, one per line |
 | `timeout-minutes` | `120` | Job timeout |
+
+Every secret is optional; pass the ones your hosts sign in with.
 
 | Secret | Used by |
 |---|---|
-| `ANTHROPIC_API_KEY` | The `claude` host |
+| `ANTHROPIC_API_KEY` | The `claude` host, with an Anthropic API key |
+| `CLAUDE_CODE_OAUTH_TOKEN` | The `claude` host, with a Claude Code OAuth token in place of an API key |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | The `claude` host through Amazon Bedrock |
 | `OPENAI_API_KEY` | The `codex` host; the workflow runs `codex login` with it |
+| `AZURE_OPENAI_API_KEY` | The `codex` host through Azure OpenAI |
+
+A provider also needs settings that are not secret. Put them in `env`; the
+workflow rejects lines that are not `NAME=VALUE`. For Claude through Bedrock:
+
+```yaml
+    with:
+      env: |
+        CLAUDE_CODE_USE_BEDROCK=1
+        AWS_REGION=us-east-1
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+Only `ANTHROPIC_API_KEY` gives each Claude trial a private `CLAUDE_CONFIG_DIR`.
+With the other sign-ins, trials share the runner's Claude configuration, which
+is empty on a fresh hosted runner. Vertex AI needs a credentials file that the
+workflow does not create; use your own steps for it.
 
 The workflow sets `SEATRIAL_STATE` to a temporary folder and uploads it as the
 artifact `seatrial-run-<run id>-<attempt>`, or `artifact-name`. Two calls in

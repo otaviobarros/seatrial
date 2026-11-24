@@ -177,7 +177,14 @@ jobs:
 
 The nightly job compares the default branch with `v1.2.0`, the last release in
 this example. Without `base-ref`, the workflow uses `origin/` plus the pull
-request's target branch, or the default branch on other events.
+request's target branch, or the default branch on other events. On the default
+branch itself, such as on a schedule, that compares the branch with itself, so
+set `base-ref`.
+
+The nightly lane runs every case 10 times per revision. With more than five
+cases on one host, that exceeds the default `limits.max_runs` of 100, and one
+trial at a time can outlast `limits.max_minutes` and `timeout-minutes`. Raise
+`[limits]` and `run.jobs` in `seatrial.toml` and `timeout-minutes` to fit.
 
 | Input | Default | Meaning |
 |---|---|---|
@@ -191,7 +198,7 @@ request's target branch, or the default branch on other events.
 | `changed` | `true` | Add `--changed <base-ref>` |
 | `select` | none | More selectors, such as `--skill my-skill` |
 | `hosts` | each case's hosts | Space-separated hosts, each passed as `--host` |
-| `models` | `[hosts.models]` | Space-separated `HOST=MODEL` pairs, each passed as `--model` |
+| `models` | `[hosts.models]` | Space-separated `HOST=MODEL` pairs, each passed as `--model`; name only selected hosts, or set `hosts`, because a pair for an unselected host is a usage error |
 | `n` | `run.n` | Trials per case, host, and revision; `0` keeps the configured value |
 | `sequential` | `true` | Add `--sequential` |
 | `correction` | `holm` | `--correction`: `none`, `holm`, or `bh` |
@@ -201,6 +208,7 @@ request's target branch, or the default branch on other events.
 | `dry-run` | `false` | Write the trial plan to the job summary; make no native calls |
 | `comment` | `true` | Post the comment on the pull request |
 | `retention-days` | `14` | Days to keep the run directory artifact; `0` uses the repository setting |
+| `artifact-name` | `seatrial-run-<run id>-<attempt>` | Run directory artifact name; set a distinct one for each call in one workflow run |
 | `timeout-minutes` | `120` | Job timeout |
 
 | Secret | Used by |
@@ -209,7 +217,9 @@ request's target branch, or the default branch on other events.
 | `OPENAI_API_KEY` | The `codex` host; the workflow runs `codex login` with it |
 
 The workflow sets `SEATRIAL_STATE` to a temporary folder and uploads it as the
-artifact `seatrial-run-<run id>-<attempt>`. `actions/upload-artifact` skips
+artifact `seatrial-run-<run id>-<attempt>`, or `artifact-name`. Two calls in
+one workflow run, such as one job for each host, need distinct `artifact-name`
+values, or the second upload fails. `actions/upload-artifact` skips
 hidden paths, so copied logins never reach the artifact. A `run.state_dir` in
 `seatrial.toml` overrides `SEATRIAL_STATE`; remove it, or the artifact is
 empty. The job output `exit-code` holds seatrial's exit code. Each run posts a

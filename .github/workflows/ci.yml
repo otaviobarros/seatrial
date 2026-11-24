@@ -91,6 +91,21 @@ jobs:
       base-ref: HEAD
       dry-run: true
 
+  # Both calls pass on 0 and 5, so check that each took the path it names.
+  seatrial-workflow-exit-codes:
+    name: Reusable workflow exit codes
+    needs: [seatrial-workflow, seatrial-workflow-unchanged]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the exit codes
+        env:
+          PLANNED: ${{ needs.seatrial-workflow.outputs.exit-code }}
+          UNCHANGED: ${{ needs.seatrial-workflow-unchanged.outputs.exit-code }}
+        run: |
+          [ "$PLANNED" = 0 ] || { echo "::error::dry run exited $PLANNED, expected 0"; exit 1; }
+          [ "$UNCHANGED" = 5 ] || { echo "::error::unchanged run exited $UNCHANGED, expected 5"; exit 1; }
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

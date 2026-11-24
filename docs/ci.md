@@ -211,9 +211,9 @@ request's target branch, or the default branch on other events.
 The workflow sets `SEATRIAL_STATE` to a temporary folder and uploads it as the
 artifact `seatrial-run-<run id>-<attempt>`. `actions/upload-artifact` skips
 hidden paths, so copied logins never reach the artifact. A `run.state_dir` in
-`seatrial.toml` overrides
-`SEATRIAL_STATE`; remove it, or the artifact is empty. The job output
-`exit-code` holds seatrial's exit code. Each run posts a new comment.
+`seatrial.toml` overrides `SEATRIAL_STATE`; remove it, or the artifact is
+empty. The job output `exit-code` holds seatrial's exit code. Each run posts a
+new comment.
 
 The job takes the caller's token permissions. Grant `pull-requests: write` for
 the comment. On a fork's pull request, the token stays read-only and secrets are

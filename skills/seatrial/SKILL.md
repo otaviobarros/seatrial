@@ -81,19 +81,25 @@ Size the trial count to the claim:
 | A revision improves a behavior | 10 |
 
 Ten trials detect a change of about 50 percentage points. With 3 trials
-`improved` is not possible.
+`improved` is not possible. The summary says how many trials a smaller change
+needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md).
 
 ## Read results
 
 1. Read `summary.cases.<id>.hosts.<host>` in the final JSON document.
-2. Quote each verdict with its trial counts. Verdicts are `regressed`, `improved`,
-   `non-inferior`, and `inconclusive`. A non-significant difference is "no
-   detected effect", never an improvement.
-3. Report trials with a status other than `completed` apart from failures; they
+2. Quote each verdict from `interpretation`: `verdict`, `evidence`, and the
+   primary pass counts with their 95% intervals (`primary.base.ci`,
+   `primary.head.ci`). Verdicts are `regressed`, `improved`, `non-inferior`, and
+   `inconclusive`. A non-significant difference is "no detected effect", never an
+   improvement.
+3. When `underpowered` is true, say the run was too small to decide, and pass on
+   `recommendation` with `trials_needed`. More trials spend quota: run them only
+   within the user's authorization.
+4. Report trials with a status other than `completed` apart from failures; they
    are not graded.
-4. Report `isolation_warnings`: those trials loaded skills from outside the
+5. Report `isolation_warnings`: those trials loaded skills from outside the
    plugin or from an unknown source, or named the project path, so their results
    may not measure the skill.
-5. Read a sample of `session.jsonl` traces under `run_dir/trials/` before you
+6. Read a sample of `session.jsonl` traces under `run_dir/trials/` before you
    explain why a trial failed.
-6. A grader fix needs no new host calls: `seatrial regrade latest --json`.
+7. A grader fix needs no new host calls: `seatrial regrade latest --json`.

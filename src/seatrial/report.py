@@ -43,6 +43,36 @@ def _mean(values):
     return round(sum(values) / len(values), 2) if values else None
 
 
+def _interval(c, n):
+    return stats.rate(c, n)['ci']
+
+
+def primary_text(s, primary):
+    """The primary pass count with its 95% Wilson interval, for example `7/10 (40–89%)`."""
+    # primary_ci is missing in summaries written before intervals were added.
+    return stats.percent({'passes': s['assertion_passes'][primary], 'valid': s['valid'], 'ci': s.get('primary_ci')})
+
+
+EVIDENCE_TEXT = {'zero_tolerance': 'zero-tolerance rule', 'strong': 'strong evidence, p < 0.01',
+                 'significant': 'significant, p < 0.05', 'not_significant': 'not significant',
+                 'insufficient_trials': 'too few valid trials'}
+
+
+def reading(result):
+    """The interpretation as one line: verdict, evidence, explanation, and recommendation."""
+    meaning = result.get('interpretation')
+    if not meaning:
+        return None
+    parts = [f"{meaning['verdict']} ({EVIDENCE_TEXT[meaning['evidence']]}).", meaning['explanation'],
+             meaning['recommendation']]
+    return ' '.join(p for p in parts if p)
+
+
+def verdict_text(result):
+    verdict = (result.get('decision') or {}).get('verdict', '-')
+    return f'{verdict}, underpowered' if (result.get('interpretation') or {}).get('underpowered') else verdict
+
+
 def summarize_arm(case, records):
     valid = [r for r in records if r['status'] in GRADED]
     passes = {a: sum(any(x['id'] == a and x['passed'] for x in r.get('assertions', [])) for r in valid)
@@ -54,8 +84,9 @@ def summarize_arm(case, records):
     added = [r['lines_added'] for r in valid if 'lines_added' in r]
     costs = [r['cost_usd'] for r in records if isinstance(r.get('cost_usd'), (int, float))]
     k = min(3, len(valid))
+    ci = {a: _interval(passes[a], len(valid)) for a in case.assertions}
     return {'trials': len(records), 'valid': len(valid), 'statuses': statuses,
-            'assertion_passes': passes, 'all_pass': all_pass,
+            'assertion_passes': passes, 'assertion_ci': ci, 'primary_ci': ci[case.primary], 'all_pass': all_pass,
             'pass_at_k': {'k': k, 'value': stats.pass_at_k(len(valid), all_pass, k) if k else None},
             'pass_pow_k': {'k': k, 'value': stats.pass_pow_k(len(valid), all_pass, k) if k else None},
             'lines_added_values': added, 'lines_added_median': median(added) if added else None,
@@ -81,6 +112,8 @@ def summarize(meta, records, cases):
             if set(arms) == {'base', 'head'}:
                 result['decision'] = stats.decide(case.assertions, case.primary, arms['base'], arms['head'],
                                                   meta['n'])
+                result['interpretation'] = stats.interpret(case.assertions, case.primary, arms['base'], arms['head'],
+                                                           result['decision'])
                 result['lines_added_p_value'] = stats.mann_whitney(arms['base']['lines_added_values'],
                                                                    arms['head']['lines_added_values'])
             entry['hosts'][host] = result
@@ -97,21 +130,21 @@ def arm_label(summary, arm):
 
 
 def markdown(summary):
-    lines = ['| Case | Host | Arm | Valid | Primary pass | All pass | pass^k | Mean wall s | Lines added median | Cost USD | Verdict |',
+    lines = ['| Case | Host | Arm | Valid | Primary pass (95% CI) | All pass | pass^k | Mean wall s | Lines added median | Cost USD | Verdict |',
              '|---|---|---|---|---|---|---|---|---|---|---|']
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
-            verdict = (result.get('decision') or {}).get('verdict', '-')
+            verdict = verdict_text(result)
             for arm, s in result['arms'].items():
                 label = arm_label(summary, arm)
                 pow_k = s['pass_pow_k']
                 pow_text = f"{pow_k['value']:.2f} (k={pow_k['k']})" if pow_k['value'] is not None else '-'
-                primary = s['assertion_passes'][entry['primary']]
-                lines.append(f"| {case_id} | {host} | {label} | {s['valid']}/{s['trials']} | {primary}/{s['valid']} | "
+                lines.append(f"| {case_id} | {host} | {label} | {s['valid']}/{s['trials']} | "
+                             f"{primary_text(s, entry['primary'])} | "
                              f"{s['all_pass']}/{s['valid']} | {pow_text} | {s['wall_s_mean'] or '-'} | "
                              f"{s['lines_added_median'] if s['lines_added_median'] is not None else '-'} | "
                              f"{s['cost_usd_total'] if s['cost_usd_total'] is not None else '-'} | {verdict} |")
-    failures = []
+    failures, readings = [], []
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
             for arm, s in result['arms'].items():
@@ -122,7 +155,48 @@ def markdown(summary):
                 if s.get('isolation_warnings'):
                     failures.append(f"- {case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                     'from outside the plugin or of unknown source, or named the project path')
-    return '\n'.join(lines + ([''] + failures if failures else []))
+            if reading(result):
+                readings.append(f'- {case_id} {host}: {reading(result)}')
+    return '\n'.join(lines + ([''] + failures if failures else [])
+                     + (['', '**How to read the verdicts**', ''] + readings if readings else []))
+
+
+FORMATS = ('table', 'markdown', 'github')
+# Verdicts in the order the GitHub report counts and lists them; `none` is a single-revision run.
+VERDICT_ORDER = ('regressed', 'inconclusive', 'non-inferior', 'improved', 'none')
+ATTENTION = ('regressed', 'inconclusive')
+
+
+def github(summary):
+    """Markdown for a pull request comment or job summary: verdict counts, cases that
+    need attention, and the full table in a collapsed block."""
+    results = [(case_id, host, entry, result) for case_id, entry in summary['cases'].items()
+               for host, result in entry['hosts'].items()]
+
+    def verdict(result):
+        return (result.get('decision') or {}).get('verdict', 'none')
+
+    counts = {v: sum(verdict(r) == v for *_, r in results) for v in VERDICT_ORDER}
+    lines = [f'- **{v}**: {counts[v]}' if v != 'none' else f'- **no verdict** (one revision): {counts[v]}'
+             for v in VERDICT_ORDER if counts[v]] or ['- no results']
+    attention = sorted((r for r in results if verdict(r[3]) in ATTENTION),
+                       key=lambda r: ATTENTION.index(verdict(r[3])))
+    if attention:
+        lines += ['', '#### Needs attention', '']
+        for case_id, host, entry, result in attention:
+            meaning = result.get('interpretation') or {}  # Summaries from older versions lack it.
+            detail = ' '.join(t for t in (meaning.get('explanation'), meaning.get('recommendation')) if t)
+            lines.append(f"- **{verdict_text(result)}** `{case_id}` on {host}" + (f': {detail}' if detail else ''))
+    total = summary.get('cost_usd_total')
+    if total is not None:
+        lines += ['', f'Total host-reported cost: {total:.2f} USD']
+    lines += ['', '<details>', '<summary>Full results</summary>', '', markdown(summary), '', '</details>']
+    return '\n'.join(lines)
+
+
+def render(summary, fmt):
+    """The summary in one text format: table, markdown, or github."""
+    return {'markdown': markdown, 'github': github}.get(fmt, terminal)(summary)
 
 
 def terminal(summary):
@@ -135,9 +209,8 @@ def terminal(summary):
             for arm, s in result['arms'].items():
                 label = arm_label(summary, arm)
                 pow_k = s['pass_pow_k']
-                primary = s['assertion_passes'][entry['primary']]
                 rows.append([case_id, ui.style(host, 'cyan'), label, f"{s['valid']}/{s['trials']}",
-                             f"{primary}/{s['valid']}", f"{s['all_pass']}/{s['valid']}",
+                             primary_text(s, entry['primary']), f"{s['all_pass']}/{s['valid']}",
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
                              s['wall_s_mean'] or '-',
                              '-' if s['cost_usd_total'] is None else f"{s['cost_usd_total']:.2f}",
@@ -148,8 +221,8 @@ def terminal(summary):
                 if s.get('isolation_warnings'):
                     notes.append(ui.warn(f"{case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                          'from outside the plugin or of unknown source, or named the project path'))
-            if decision.get('reason'):
-                notes.append(ui.info(f"{case_id} {host}: {decision['reason']}"))
+            if reading(result) or decision.get('reason'):  # Older summaries have only the reason.
+                notes.append(ui.info(f"{case_id} {host}: {reading(result) or decision['reason']}"))
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD', 'Verdict'], rows)
     total = summary.get('cost_usd_total')
     footer = [ui.style(f'total cost USD {total:.2f}', 'dim')] if total is not None else []

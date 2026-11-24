@@ -169,7 +169,7 @@ class HostContractTests(ProjectCase, unittest.TestCase):
             found = runner.isolation_findings(adapter, t, adapter.collect(t))
         self.assertEqual(found, {'unknown_skills': ['demo/SKILL.md']})
         record = {'status': 'completed', 'wall_s': 1, 'assertions': [], **found}
-        case = types.SimpleNamespace(assertions={'primary': 'rate'})
+        case = types.SimpleNamespace(assertions={'primary': 'rate'}, primary='primary')
         self.assertEqual(report.summarize_arm(case, [record])['isolation_warnings'], 1)
 
     def test_claude_reports_skills_from_outside_the_plugin(self):

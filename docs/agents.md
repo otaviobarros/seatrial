@@ -26,10 +26,34 @@ An error prints `{"ok": false, "error": "...", "exit": 2}` on stdout, with
 the exit code it names.
 
 The final document of `run`, `compare`, and `regrade` has `run_dir`,
-`stopped_early`, `regressed` (a list of `"<case> <host>"`), and `summary`, whose
-`revisions` maps each arm to the revision it ran.
-`seatrial schema --json` prints the case, evidence, status, verdict, and
-exit-code contract.
+`stopped_early`, `regressed` and `underpowered` (lists of `"<case> <host>"`), and
+`summary`, whose `revisions` maps each arm to the revision it ran.
+`seatrial schema --json` prints the case, evidence, status, verdict,
+interpretation, and exit-code contract.
+
+Each comparison in `summary.cases.<id>.hosts.<host>` has `decision` (the verdict
+and Fisher p-values) and `interpretation`, which reads it for people and tools:
+
+| Field | Value |
+|---|---|
+| `verdict` | Same as `decision.verdict` |
+| `evidence` | `zero_tolerance`, `strong` (p < 0.01), `significant` (p < 0.05), `not_significant`, or `insufficient_trials` |
+| `primary.base`, `primary.head` | `passes`, `valid`, `rate`, `ci` (95% Wilson `[low, high]`), `margin` (half the interval) |
+| `primary.difference`, `primary.p_value` | Head rate minus base rate; Fisher p on the primary assertion |
+| `primary.intervals_overlap` | `true` when the base and head intervals overlap |
+| `deciding_assertion`, `deciding_p_value` | The assertion the reading rests on and its Fisher p; for `inconclusive`, the assertion with the largest drop |
+| `underpowered` | `true` when the difference is not significant and the run had fewer trials than `trials_needed` |
+| `trials_needed` | Trials per revision to detect the observed change with 80% power, on the primary assertion or, for `inconclusive`, on `deciding_assertion`; `null` when there is no change |
+| `detectable_change` | The smallest change, as a fraction, that the run's trial count could detect on the same assertion as `trials_needed`; `null` when no change up to 100 points could be detected |
+| `explanation`, `recommendation` | The same reading as text; the Markdown and GitHub reports print these |
+
+Every arm summary also has `primary_ci` and `assertion_ci` (`{assertion: [low, high]}`).
+[Statistics](statistics.md) explains the method.
+
+For a pull request comment or a job summary, use `--format github` on `run`,
+`compare`, or `report`. Without `--json` it prints only the Markdown on stdout;
+progress and the run directory go to stderr. With `GITHUB_STEP_SUMMARY` set, it also appends that Markdown
+to the file, with or without `--json`.
 
 ## Procedure
 
@@ -51,7 +75,10 @@ exit-code contract.
    `--max-cost-usd`. Native calls spend the user's quota; run them only within
    the user's authorization.
 5. Read `summary.cases.<id>.hosts.<host>` for each case. Quote verdicts with
-   their trial counts, and report invalid statuses separately from failures.
+   their pass counts and intervals from `interpretation`, and report invalid
+   statuses separately from failures. When `underpowered` is true, report the
+   result as undecided and pass on `recommendation`; more trials need the user's
+   authorization.
 6. Read a sample of traces under `run_dir/trials/` before you claim a behavior.
 
 ## Non-interactive setup

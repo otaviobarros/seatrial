@@ -127,7 +127,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `run [--rev REV]` | Run cases against one skill revision |
 | `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
 | `runs` | List retained run directories, newest first |
-| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table |
+| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format github` for a pull request comment |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
@@ -218,6 +218,21 @@ non-significant result as "no detected effect". The report also shows pass^k,
 median lines added, mean wall time, and host-reported cost. Use
 `--fail-on-regression` to exit 4 on any `regressed` verdict.
 
+Each primary pass count comes with its 95% Wilson interval, for example
+`7/10 (40–89%)`: the range of true pass rates that fit the trials. Wide or
+overlapping intervals mean the run is too small to tell the revisions apart.
+Each verdict also comes with a reading: the evidence behind it, why it holds, and,
+when the result is undecided, how many trials per revision would decide it.
+`summary.json` stores the reading as fields under `interpretation`.
+[Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md)
+explains the method and how to read it.
+
+`--format github` on `run`, `compare`, or `report` prints Markdown for a pull
+request comment: one line per verdict count, then the regressed and inconclusive
+cases, then the full table in a collapsed block. Progress goes to stderr, so
+stdout holds only the Markdown. With `GITHUB_STEP_SUMMARY` set, it also appends
+that Markdown to the job summary.
+
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
 </p>
@@ -236,7 +251,7 @@ directory: `runs`, `report latest`, and `regrade` show only the current project'
 |---|---|
 | `run.json` | The run settings and revisions, including `trigger_override`, written before the first trial |
 | `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path; `trigger` is the trial's trigger mode (`auto` for NONE), and `other_skills` lists other plugin skills it loaded, by resolved path |
-| `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
+| `summary.json` | Per-case, per-host, per-revision summaries with 95% pass-rate intervals, and verdicts with their `interpretation`; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
 
 </details>

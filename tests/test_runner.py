@@ -12,7 +12,7 @@ import types
 import unittest
 from unittest import mock
 
-from seatrial import cases, cli, hosts, runner
+from seatrial import cases, cli, hosts, report, runner
 from seatrial.ports import HostAdapter, new_evidence
 from tests.support import ProjectCase
 from tests.test_cases import GOOD_TOML, write_case
@@ -75,11 +75,39 @@ class Fake(HostAdapter):
         evidence = new_evidence()
         if trial.trace.exists():
             data = json.loads(trial.trace.read_text())
-            evidence.update(final_message=data['final'], commands=data['commands'], terminal=True)
+            evidence.update(final_message=data['final'], commands=data['commands'], terminal=True,
+                            tool_errors=int(not (trial.project / 'hello.txt').exists()))
         return evidence
 
 
+def concrete_paths(path):
+    """A documented summary path with its placeholders filled in for the fake runs below."""
+    path = path.replace('<id>', 'demo-001').replace('<host>', 'fake').replace('<arm>', 'head')
+    return [path.replace('<metric>', name) for name in report.EFFICIENCY] if '<metric>' in path else [path]
+
+
 class RunnerTests(ProjectCase, unittest.TestCase):
+    def assert_documented_types(self, summary, case_ids):
+        """Fail when a documented effect or efficiency field is renamed or changes type."""
+        for case_id in case_ids:
+            result = summary['cases'][case_id]['hosts']['fake']
+            decision = result['decision']
+            self.assertIn(decision['cost'], (None, 'cheaper', 'costlier'))
+            for entry in [decision['effect_primary'], *decision['effect'].values()]:
+                self.assertEqual(set(entry), {'estimate', 'ci', 'level', 'metric'})
+                self.assertIsInstance(entry['estimate'], float)
+                self.assertTrue(len(entry['ci']) == 2 and all(isinstance(v, float) for v in entry['ci']))
+                self.assertEqual((entry['level'], entry['metric']), (0.95, 'rate_difference'))
+            self.assertEqual(decision['effect_primary'], decision['effect'][summary['cases'][case_id]['primary']])
+            self.assertEqual(set(result['efficiency']), set(report.EFFICIENCY))
+            for value in result['efficiency'].values():
+                self.assertEqual(set(value), {'base_median', 'head_median', 'p_value'})
+                self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in value.values()))
+            for arm in result['arms'].values():
+                for name in report.EFFICIENCY:
+                    self.assertIsInstance(arm[f'{name}_values'], list)
+
+
     def setUp(self):
         super().setUp()
         root = self.cfg.cases
@@ -275,10 +303,15 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         for path, shape in documented.items():
             if 'present for --sequential' in shape:
                 continue
-            node = summary
-            for part in path.replace('<id>', 'demo-001').replace('<host>', 'fake').split('.'):
-                self.assertIn(part, node, path)
-                node = node[part]
+            for concrete in concrete_paths(path):
+                node = summary
+                for part in concrete.split('.'):
+                    self.assertIn(part, node, concrete)
+                    node = node[part]
+        self.assert_documented_types(summary, ['demo-001', 'demo-002'])
+        arms = summary['cases']['demo-001']['hosts']['fake']['arms']
+        self.assertEqual((sum(arms['base']['tool_errors_values']), sum(arms['head']['tool_errors_values'])), (0, 5))
+        self.assertAlmostEqual(decision['effect_primary']['estimate'], -0.5)
         # regrade keeps the run's correction unless told otherwise.
         ok, text = self.cli('regrade', document['run_dir'], '--json')
         self.assertTrue(ok, text)
@@ -356,12 +389,14 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as schema:
             cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
         for path in json.loads(schema.getvalue())['summary_fields']:
-            node = summary
-            for part in path.replace('<id>', 'demo-001').replace('<host>', 'fake').split('.'):
-                if part == 'adjusted_p_values' or part == 'verdict_uncorrected':
-                    break  # Present only with a correction.
-                self.assertIn(part, node, path)
-                node = node[part]
+            for concrete in concrete_paths(path):
+                node = summary
+                for part in concrete.split('.'):
+                    if part == 'adjusted_p_values' or part == 'verdict_uncorrected':
+                        break  # Present only with a correction.
+                    self.assertIn(part, node, concrete)
+                    node = node[part]
+        self.assert_documented_types(summary, ['demo-001'])
 
     def test_sequential_options_are_validated(self):
         for argv in (['--looks', '5,10'], ['--sequential', '--looks', '10,5'], ['--sequential', '--looks', '5,11'],

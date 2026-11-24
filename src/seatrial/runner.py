@@ -168,7 +168,7 @@ def run_trial(job, context):
                   stalled_s=process.get('stalled_s', 0.0), status=status, usage=evidence['usage'],
                   cost_usd=evidence['cost_usd'], commands=len(evidence['commands']),
                   delegations=evidence['delegations'], delegation_traces=evidence['delegation_traces'],
-                  skills=sorted(set(evidence['skills']))[:20])
+                  skills=sorted(set(evidence['skills']))[:20], tool_errors=evidence.get('tool_errors'))
     record.update(isolation_findings(host, trial, evidence))
     if status == 'completed' and trial.plugin is None and record.get('foreign_skills'):
         status = record['status'] = 'contaminated'  # The baseline ran a skill: not a no-skill measurement.

@@ -48,6 +48,7 @@ EVIDENCE_KEYS = {
 # as "not recorded", which differs from an empty list.
 OPTIONAL_EVIDENCE_KEYS = {
     'tools': list,            # tool calls in call order, each {"name": str, "input": dict}
+    'tool_errors': int,       # tool results the host marked as errors
 }
 
 

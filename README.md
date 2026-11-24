@@ -237,12 +237,28 @@ Ten trials per revision detect only changes of about 60 percentage points on
 the primary assertion, and none from a 50% pass rate; 30 trials detect about 30
 points. With 3 trials, `improved` is not possible. Report a
 non-significant result as "no detected effect". The report also shows pass^k,
-median lines added, mean wall time, and host-reported cost. Use
-`--fail-on-regression` to exit 4 on any `regressed` verdict.
+median lines added, mean wall time, and per-arm medians of host-reported cost,
+turns, and tool errors. Use `--fail-on-regression` to exit 4 on any `regressed`
+verdict.
+
+A `non-inferior` verdict whose head cost is lower with Mann-Whitney p < 0.05
+reads `non-inferior, cheaper`: the change keeps quality and saves money. A head
+cost that is higher with p < 0.05 adds `costlier` to any verdict that has
+p-values. Neither note changes the verdict or the exit code.
 
 Each primary pass count comes with its 95% Wilson interval, for example
 `7/10 (40–89%)`: the range of true pass rates that fit the trials. Wide or
 overlapping intervals mean the run is too small to tell the revisions apart.
+The `Effect` column shows how much the primary pass rate changed, head minus
+base, with its 95% interval, for example `−30 pp (−60 to +4)`. The per-arm
+interval says how precise one pass rate is; the effect interval says which
+changes between the revisions fit the trials. An interval that spans 0 fits no
+change, and its far end shows how large a change the run cannot rule out. At
+10 trials an interval can exclude 0 beside a non-significant verdict, for example
+6/10 against 10/10: `−40 pp (−69 to −4)` with Fisher p = 0.087. The verdict
+follows Fisher.
+`summary.json` stores it as `decision.effect` per assertion and
+`decision.effect_primary`. The effect is reported, never gated.
 Each verdict also comes with a reading: the evidence behind it, why it holds, and,
 when the result is undecided, how many trials per revision would decide it.
 `summary.json` stores the reading as fields under `interpretation`.

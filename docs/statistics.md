@@ -1,15 +1,19 @@
 # Statistics
 
-seatrial reports each comparison as one reading built from three methods:
+seatrial reports each comparison as one reading built from these methods:
 
 - **Fisher's exact test** decides the verdict. It is the only gate.
 - **Wilson score intervals** show how precise each pass rate is.
+- **Newcombe intervals** show how large the change between revisions is.
 - **A sample-size estimate** says how many trials would settle a result that the
   run could not decide.
+- **Mann-Whitney tests** compare cost, turns, tool errors, and wall time, and
+  add a `cheaper` or `costlier` note to the verdict.
 
 `summary.json` stores the reading under `interpretation` for each case and host,
-and every report format prints it. The verdict rule never reads the intervals or
-the estimate; they explain the verdict and say what to do next.
+the effect and cost note under `decision`, and the cost comparison under
+`efficiency`; every report format prints them. The verdict rule never reads the
+intervals or the estimate; they explain the verdict and say what to do next.
 
 ## Why agent evaluations need this
 
@@ -96,6 +100,64 @@ and n of n, and covers the true rate close to 95% of the time even at small n.
 `margin` is half the interval width. At a 50% pass rate it is about ±26 points
 at 10 trials, ±17 at 30, and ±10 at 100: quadrupling the trials roughly halves it.
 
+## Effect size: Newcombe intervals
+
+A Wilson interval describes one pass rate. The effect describes the change: head
+rate minus base rate, with a 95% interval for that difference. seatrial uses
+Newcombe's hybrid score interval (method 10), built from the two Wilson
+intervals [l₁, u₁] for base rate p₁ and [l₂, u₂] for head rate p₂:
+
+```text
+d    = p₂ − p₁
+low  = d − √( (p₂ − l₂)² + (u₁ − p₁)² )
+high = d + √( (u₂ − p₂)² + (p₁ − l₁)² )
+```
+
+Like the Wilson interval, it stays inside [−1, 1] and keeps a nonzero width at
+0 of n and n of n, where the textbook difference interval collapses.
+
+| Base | Head | Effect | 95% interval |
+|---|---|---|---|
+| 10/10 | 7/10 | −30 pp | −60 to +4 |
+| 10/10 | 2/10 | −80 pp | −94 to −38 |
+| 7/10 | 7/10 | +0 pp | −36 to +36 |
+| 0/10 | 10/10 | +100 pp | +61 to +100 |
+
+The first two rows are both `regressed` under a zero-tolerance assertion; the
+effect shows that the second is far larger. An interval that spans 0 fits no
+change, and its far end is the largest change the run cannot rule out: at 7/10
+against 7/10, a drop of 36 points still fits the trials.
+
+`decision.effect` holds the entry for every assertion and
+`decision.effect_primary` for the primary one. The interval is not a test and
+does not use the multiple-comparison correction or the per-look threshold. At
+small n it can exclude 0 while Fisher's test is not significant: 6/10 against
+10/10 gives −40 pp (−69 to −4) with p = 0.087. The verdict reads only Fisher.
+
+## Cost, turns, and tool errors
+
+For each comparison, seatrial compares four values per valid trial between
+arms: host-reported `cost_usd`, `num_turns`, `tool_errors`, and `wall_s`. It
+uses the two-sided Mann-Whitney rank test with a normal approximation, as for
+lines added, and stores both medians and the p-value under `efficiency`. A host
+that does not report a value leaves it out; an arm with no values has no
+p-value.
+
+`num_turns` is the count the host reports. The Claude adapter takes it from the
+last result event, so a trial that waits for a background task counts only its
+last segment.
+
+| Note | Rule |
+|---|---|
+| `cheaper` | The verdict is `non-inferior`, and the head median cost is lower with p < 0.05 |
+| `costlier` | Any verdict with p-values, and the head median cost is higher with p < 0.05 |
+
+The note appears beside the verdict, for example `non-inferior, cheaper`, and in
+`decision.cost`. It never changes `decision.verdict`, the `regressed` list, or
+`--fail-on-regression`. The cost test runs at 0.05 without a correction or
+per-look threshold, so read it as a secondary result. At 10 trials per arm the
+rank test detects only a large, consistent shift in cost.
+
 ## Next step: trials needed
 
 When the primary difference is not significant, seatrial estimates how many
@@ -162,6 +224,8 @@ trials", not as an improvement.
   confirm a surprising verdict with a second run.
 - The trial estimate sizes one assertion: the primary one, or for `inconclusive`
   the one with the largest drop.
+- `cheaper` and `costlier` rest on one uncorrected rank test per comparison;
+  in a large run, expect a few by chance.
 - Verdicts are advisory, not merge gates. `--fail-on-regression` is the only exit
   code that reads them.
 

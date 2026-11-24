@@ -33,6 +33,36 @@ def wilson(c, n, z=1.96):
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
+def rate_difference(c1, n1, c2, n2, z=1.96):
+    """Head minus base pass rate, (estimate, low, high), with the Newcombe hybrid score interval
+    built from each arm's Wilson interval; base is c1 of n1, head c2 of n2. None when an arm is empty."""
+    if n1 == 0 or n2 == 0:
+        return None
+    p1, p2 = c1 / n1, c2 / n2
+    (l1, u1), (l2, u2) = wilson(c1, n1, z), wilson(c2, n2, z)
+    estimate = p2 - p1
+    return (estimate, max(-1.0, estimate - sqrt((p2 - l2) ** 2 + (u1 - p1) ** 2)),
+            min(1.0, estimate + sqrt((u2 - p2) ** 2 + (p1 - l1) ** 2)))
+
+
+def effect(c1, n1, c2, n2):
+    """A rate_difference() as the stable summary entry, or None when an arm is empty."""
+    difference = rate_difference(c1, n1, c2, n2)
+    if difference is None:
+        return None
+    estimate, low, high = difference
+    return {'estimate': estimate, 'ci': [low, high], 'level': 0.95, 'metric': 'rate_difference'}
+
+
+def effect_text(entry):
+    """An effect() entry in percentage points, for example `−30 pp (−60 to +4)`."""
+    def points(x):
+        # One significant digit near 0, so a nonzero bound never prints as −0 or +0.
+        value = x * 100
+        return (f'{value:+.1g}' if 0 < abs(value) < 0.5 else f'{value:+.0f}').replace('-', '−')
+    return f"{points(entry['estimate'])} pp ({points(entry['ci'][0])} to {points(entry['ci'][1])})"
+
+
 def trials_needed(p1, p2, alpha=ALPHA, z_power=0.8416):
     """Approximate trials per arm for a two-sided test at alpha to detect p1 versus p2 with 80% power.
 
@@ -294,8 +324,9 @@ def decide(assertions, primary, base, head, n, adjusted=None, alpha=ALPHA, margi
         verdict = 'non-inferior'
     else:
         verdict = 'inconclusive'
+    sizes = {a: effect(bp[a], nb, hp[a], nh) for a in assertions}  # Reported, never gated.
     result = {'verdict': verdict, 'p_values': p, 'new_zero_tolerance_failures': new_zero,
-              'significantly_worse': worse}
+              'significantly_worse': worse, 'effect': sizes, 'effect_primary': sizes[primary]}
     if adjusted is not None:
         result['adjusted_p_values'] = dict(adjusted)
     return result

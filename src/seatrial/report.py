@@ -83,9 +83,57 @@ def verdict_text(result):
     if not decision:
         return '-'
     text = decision['verdict'] + ('*' if 'verdict_uncorrected' in decision else '')
+    text += f", {decision['cost']}" if decision.get('cost') else ''
     stopped = stop_text(decision)
     text += f' ({stopped})' if stopped else ''
     return f'{text}, underpowered' if (result.get('interpretation') or {}).get('underpowered') else text
+
+
+# Metrics compared between arms over valid trials, with the Mann-Whitney test lines_added uses.
+EFFICIENCY = ('cost_usd', 'num_turns', 'tool_errors', 'wall_s')
+
+
+def metric(record, name):
+    """One efficiency value of a record, or None when the host did not report it."""
+    value = (record.get('usage') or {}).get('num_turns') if name == 'num_turns' else record.get(name)
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def efficiency(base, head):
+    """Per metric: both arms' medians and the Mann-Whitney p-value (None when an arm lacks values)."""
+    result = {}
+    for name in EFFICIENCY:
+        b, h = base.get(f'{name}_values') or [], head.get(f'{name}_values') or []
+        result[name] = {'base_median': median(b) if b else None, 'head_median': median(h) if h else None,
+                        'p_value': stats.mann_whitney(b, h)}
+    return result
+
+
+def cost_note(decision, comparison):
+    """'cheaper' for a non-inferior head with significantly lower cost, 'costlier' for any verdict with
+    significantly higher cost, else None. Tested at 0.05 without correction; never changes the verdict."""
+    cost = (comparison or {}).get('cost_usd') or {}
+    if 'p_values' not in decision or cost.get('p_value') is None or cost['p_value'] >= stats.ALPHA:
+        return None
+    if cost['head_median'] == cost['base_median']:
+        return None  # Significant rank shift with equal medians: no direction worth reporting.
+    lower = cost['head_median'] < cost['base_median']
+    if lower:
+        return 'cheaper' if decision['verdict'] == 'non-inferior' else None
+    return 'costlier'
+
+
+def effect_text(result):
+    """The primary effect with its 95% interval, for example `−30 pp (−60 to +4)`, or '-'."""
+    entry = (result.get('decision') or {}).get('effect_primary')
+    return stats.effect_text(entry) if entry else '-'
+
+
+def median_text(s, name, digits=None):
+    value = s.get(f'{name}_median')  # Missing in summaries written before efficiency metrics.
+    if value is None:
+        return '-'
+    return f'{value:.{digits}f}' if digits is not None else f'{value:g}'
 
 
 def summarize_arm(case, records):
@@ -100,6 +148,10 @@ def summarize_arm(case, records):
     costs = [r['cost_usd'] for r in records if isinstance(r.get('cost_usd'), (int, float))]
     k = min(3, len(valid))
     ci = {a: _interval(passes[a], len(valid)) for a in case.assertions}
+    measured = {}
+    for name in EFFICIENCY:
+        values = [v for v in (metric(r, name) for r in valid) if v is not None]
+        measured[f'{name}_values'], measured[f'{name}_median'] = values, median(values) if values else None
     return {'trials': len(records), 'valid': len(valid), 'statuses': statuses,
             'assertion_passes': passes, 'assertion_ci': ci, 'primary_ci': ci[case.primary], 'all_pass': all_pass,
             'pass_at_k': {'k': k, 'value': stats.pass_at_k(len(valid), all_pass, k) if k else None},
@@ -109,7 +161,8 @@ def summarize_arm(case, records):
             'commands_mean': _mean([r['commands'] for r in valid if r.get('commands') is not None]),
             'final_words_mean': _mean([r['final_words'] for r in valid if 'final_words' in r]),
             'cost_usd_total': round(sum(costs), 4) if costs else None,
-            'isolation_warnings': sum(1 for r in records if r.get('foreign_skills') or r.get('unknown_skills') or r.get('outside_access'))}
+            'isolation_warnings': sum(1 for r in records if r.get('foreign_skills') or r.get('unknown_skills') or r.get('outside_access')),
+            **measured}
 
 
 def summarize(meta, records, cases, correction='none'):
@@ -127,6 +180,7 @@ def summarize(meta, records, cases, correction='none'):
             if set(arms) == {'base', 'head'}:
                 result['lines_added_p_value'] = stats.mann_whitney(arms['base']['lines_added_values'],
                                                                    arms['head']['lines_added_values'])
+                result['efficiency'] = efficiency(arms['base'], arms['head'])
             entry['hosts'][host] = result
         summary['cases'][case.id] = entry
     costs = [r['cost_usd'] for r in records if isinstance(r.get('cost_usd'), (int, float))]
@@ -177,7 +231,9 @@ def correct(summary, method):
             decision = corrected
         if record:
             decision['sequential'] = dict(record, superseded=stop_superseded(record, decision))
-        summary['cases'][case_id]['hosts'][host]['decision'] = decision
+        result = summary['cases'][case_id]['hosts'][host]
+        decision['cost'] = cost_note(decision, result.get('efficiency'))
+        result['decision'] = decision
     # Trial counts use a Bonferroni bound on the per-test threshold: conservative for holm and bh.
     test_alpha = alpha / len(tests) if method != 'none' and tests else alpha
     rerun_alpha = test_alpha * stats.ALPHA / alpha if looks else None  # The same design without looks.
@@ -187,6 +243,12 @@ def correct(summary, method):
         result['interpretation'] = stats.interpret(entry['assertions'], entry['primary'], result['arms']['base'],
                                                    result['arms']['head'], result['decision'],
                                                    alpha=alpha, test_alpha=test_alpha, rerun_alpha=rerun_alpha)
+        if result['decision']['cost']:
+            cost = result['efficiency']['cost_usd']
+            result['interpretation']['explanation'] += (
+                f" Head cost {'less' if result['decision']['cost'] == 'cheaper' else 'more'}: median "
+                f"{cost['head_median']:.4g} against {cost['base_median']:.4g} USD per trial, Mann-Whitney "
+                f"p = {cost['p_value']:.3f}.")
     summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
     if 'correction' in summary:  # Run metadata; keep it in step when report or regrade changes the method.
         summary['correction'] = method
@@ -244,11 +306,12 @@ def arm_label(summary, arm):
 
 def markdown(summary, notes=True):
     """The summary as a Markdown table; notes=False leaves out run notes a caller prints itself."""
-    lines = ['| Case | Host | Arm | Valid | Primary pass (95% CI) | All pass | pass^k | Mean wall s | Lines added median | Cost USD | Verdict |',
-             '|---|---|---|---|---|---|---|---|---|---|---|']
+    lines = ['| Case | Host | Arm | Valid | Primary pass (95% CI) | All pass | pass^k | Mean wall s | Lines added median '
+             '| Cost USD median | Turns median | Tool errors median | Effect (95% CI) | Verdict |',
+             '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
-            verdict = verdict_text(result)
+            verdict, change = verdict_text(result), effect_text(result)
             for arm, s in result['arms'].items():
                 label = arm_label(summary, arm)
                 pow_k = s['pass_pow_k']
@@ -257,7 +320,8 @@ def markdown(summary, notes=True):
                              f"{primary_text(s, entry['primary'])} | "
                              f"{s['all_pass']}/{s['valid']} | {pow_text} | {s['wall_s_mean'] or '-'} | "
                              f"{s['lines_added_median'] if s['lines_added_median'] is not None else '-'} | "
-                             f"{s['cost_usd_total'] if s['cost_usd_total'] is not None else '-'} | {verdict} |")
+                             f"{median_text(s, 'cost_usd', 4)} | {median_text(s, 'num_turns')} | "
+                             f"{median_text(s, 'tool_errors')} | {change} | {verdict} |")
     failures, readings = [], []
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
@@ -294,7 +358,13 @@ def comment(summary):
         return (result.get('decision') or {}).get('verdict', 'none')
 
     counts = {v: sum(verdict(r) == v for *_, r in results) for v in VERDICT_ORDER}
-    lines = [f'- **{v}**: {counts[v]}' if v != 'none' else f'- **no verdict** (one revision): {counts[v]}'
+
+    def notes(v):
+        found = [(r.get('decision') or {}).get('cost') for *_, r in results if verdict(r) == v]
+        parts = [f'{found.count(note)} {note}' for note in ('cheaper', 'costlier') if found.count(note)]
+        return f" ({', '.join(parts)})" if parts else ''
+
+    lines = [f'- **{v}**: {counts[v]}{notes(v)}' if v != 'none' else f'- **no verdict** (one revision): {counts[v]}'
              for v in VERDICT_ORDER if counts[v]] or ['- no results']
     attention = sorted((r for r in results if verdict(r[3]) in ATTENTION),
                        key=lambda r: ATTENTION.index(verdict(r[3])))
@@ -303,7 +373,9 @@ def comment(summary):
         for case_id, host, entry, result in attention:
             meaning = result.get('interpretation') or {}  # Summaries from older versions lack it.
             detail = ' '.join(t for t in (meaning.get('explanation'), meaning.get('recommendation')) if t)
-            lines.append(f"- **{verdict_text(result)}** `{case_id}` on {host}" + (f': {detail}' if detail else ''))
+            change = effect_text(result)
+            lines.append(f"- **{verdict_text(result)}** `{case_id}` on {host}"
+                         + (f', primary {change}' if change != '-' else '') + (f': {detail}' if detail else ''))
     if summary.get('stopped_early'):
         lines[:0] = ['**The run stopped early: these are partial results.**', '']
     for note in (correction_note(summary), sequential_note(summary)):
@@ -338,8 +410,8 @@ def terminal(summary):
                 rows.append([case_id, ui.style(host, 'cyan'), label, f"{s['valid']}/{s['trials']}",
                              primary_text(s, entry['primary']), f"{s['all_pass']}/{s['valid']}",
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
-                             s['wall_s_mean'] or '-',
-                             '-' if s['cost_usd_total'] is None else f"{s['cost_usd_total']:.2f}",
+                             s['wall_s_mean'] or '-', median_text(s, 'cost_usd', 2), median_text(s, 'num_turns'),
+                             median_text(s, 'tool_errors'), effect_text(result) if decision and arm == 'head' else '',
                              ui.style(verdict_text(result), ui.VERDICT_STYLE.get(decision['verdict'], 'gray'))
                              if decision and arm == 'head' else ''])
                 invalid = {k: v for k, v in s['statuses'].items() if k not in GRADED}
@@ -354,7 +426,8 @@ def terminal(summary):
     for note in (correction_note(summary), sequential_note(summary)):
         if note:
             notes.append(ui.info(note))
-    text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD', 'Verdict'], rows)
+    text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD med', 'Turns',
+                     'Tool err', 'Effect', 'Verdict'], rows)
     total = summary.get('cost_usd_total')
     footer = [ui.style(f'total cost USD {total:.2f}', 'dim')] if total is not None else []
     return '\n'.join([text] + notes + footer)

@@ -66,7 +66,7 @@ def summarize_arm(case, records):
             'isolation_warnings': sum(1 for r in records if r.get('foreign_skills') or r.get('unknown_skills') or r.get('outside_access'))}
 
 
-def summarize(meta, records, cases):
+def summarize(meta, records, cases, correction='none'):
     """Per case and host: one summary per arm, and a verdict when there are two arms."""
     summary = dict(meta, cases={})
     for case in cases:
@@ -79,15 +79,62 @@ def summarize(meta, records, cases):
                     for arm in meta['arms']}
             result = {'arms': arms}
             if set(arms) == {'base', 'head'}:
-                result['decision'] = stats.decide(case.assertions, case.primary, arms['base'], arms['head'],
-                                                  meta['n'])
                 result['lines_added_p_value'] = stats.mann_whitney(arms['base']['lines_added_values'],
                                                                    arms['head']['lines_added_values'])
             entry['hosts'][host] = result
         summary['cases'][case.id] = entry
     costs = [r['cost_usd'] for r in records if isinstance(r.get('cost_usd'), (int, float))]
     summary['cost_usd_total'] = round(sum(costs), 4) if costs else None
+    return correct(summary, correction)
+
+
+def correct(summary, method):
+    """Recompute every verdict with p-values adjusted across the run's Fisher tests.
+
+    The family is every assertion of every case and host with a decision; zero-tolerance
+    failures do not use p-values and stay outside it. Works on a stored summary too."""
+    plain, tests = {}, []
+    for case_id, entry in summary['cases'].items():
+        for host, result in entry['hosts'].items():
+            arms = result['arms']
+            if set(arms) != {'base', 'head'}:
+                continue
+            decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], summary['n'])
+            plain[(case_id, host)] = decision
+            tests += [(case_id, host, a, p) for a, p in sorted((decision.get('p_values') or {}).items())]
+    adjusted = {}
+    for (case_id, host, assertion, _), value in zip(tests, stats.adjust([t[3] for t in tests], method)):
+        adjusted.setdefault((case_id, host), {})[assertion] = value
+    for (case_id, host), decision in plain.items():
+        if method != 'none' and (case_id, host) in adjusted:
+            entry = summary['cases'][case_id]
+            arms = entry['hosts'][host]['arms']
+            corrected = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'],
+                                     summary['n'], adjusted=adjusted[(case_id, host)])
+            if corrected['verdict'] != decision['verdict']:
+                corrected['verdict_uncorrected'] = decision['verdict']
+            decision = corrected
+        summary['cases'][case_id]['hosts'][host]['decision'] = decision
+    summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': stats.ALPHA}
     return summary
+
+
+def correction_note(summary):
+    """One line naming the correction, or None when verdicts use raw p-values."""
+    info = summary.get('multiple_comparisons') or {}
+    if info.get('method', 'none') == 'none':
+        return None
+    changed = sum(1 for entry in summary['cases'].values() for result in entry['hosts'].values()
+                  if 'verdict_uncorrected' in (result.get('decision') or {}))
+    return (f"verdicts corrected with {info['method']} across {info['family_size']} Fisher tests; "
+            f"{changed} changed (marked *)")
+
+
+def verdict_text(decision):
+    """The verdict, with * when the multiple-comparison correction changed it."""
+    if not decision:
+        return '-'
+    return decision['verdict'] + ('*' if 'verdict_uncorrected' in decision else '')
 
 
 def arm_label(summary, arm):
@@ -101,7 +148,7 @@ def markdown(summary):
              '|---|---|---|---|---|---|---|---|---|---|---|']
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
-            verdict = (result.get('decision') or {}).get('verdict', '-')
+            verdict = verdict_text(result.get('decision'))
             for arm, s in result['arms'].items():
                 label = arm_label(summary, arm)
                 pow_k = s['pass_pow_k']
@@ -122,6 +169,9 @@ def markdown(summary):
                 if s.get('isolation_warnings'):
                     failures.append(f"- {case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                     'from outside the plugin or of unknown source, or named the project path')
+    note = correction_note(summary)
+    if note:
+        failures.append(f'- {note}')
     return '\n'.join(lines + ([''] + failures if failures else []))
 
 
@@ -141,7 +191,8 @@ def terminal(summary):
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
                              s['wall_s_mean'] or '-',
                              '-' if s['cost_usd_total'] is None else f"{s['cost_usd_total']:.2f}",
-                             ui.verdict(decision['verdict']) if decision and arm == 'head' else ''])
+                             (ui.verdict(decision['verdict']) + ('*' if 'verdict_uncorrected' in decision else ''))
+                             if decision and arm == 'head' else ''])
                 invalid = {k: v for k, v in s['statuses'].items() if k not in GRADED}
                 if invalid:
                     notes.append(ui.warn(f'{case_id} {host} {label}: invalid trials {invalid}'))
@@ -150,6 +201,9 @@ def terminal(summary):
                                          'from outside the plugin or of unknown source, or named the project path'))
             if decision.get('reason'):
                 notes.append(ui.info(f"{case_id} {host}: {decision['reason']}"))
+    note = correction_note(summary)
+    if note:
+        notes.append(ui.info(note))
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD', 'Verdict'], rows)
     total = summary.get('cost_usd_total')
     footer = [ui.style(f'total cost USD {total:.2f}', 'dim')] if total is not None else []

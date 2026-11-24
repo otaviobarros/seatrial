@@ -127,7 +127,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `run [--rev REV]` | Run cases against one skill revision |
 | `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
 | `runs` | List retained run directories, newest first |
-| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table |
+| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--correction` to re-apply a method |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
@@ -190,6 +190,7 @@ own; see [trigger modes](https://github.com/otaviobarros/seatrial/blob/main/docs
 | `--max-cost-usd` total host-reported cost | none | none |
 | `--budget-usd` per-trial cap (Claude only) | none | none |
 | `--trigger explicit\|auto`; `auto` sends the request without the skill invocation | case `trigger`, `explicit` | none |
+| `--correction none\|holm\|bh`; adjusts Fisher p-values across the run | `none` | none |
 
 </details>
 
@@ -217,6 +218,25 @@ primary assertion. With 3 trials, `improved` is not possible. Report a
 non-significant result as "no detected effect". The report also shows pass^k,
 median lines added, mean wall time, and host-reported cost. Use
 `--fail-on-regression` to exit 4 on any `regressed` verdict.
+
+### Many cases at once
+
+Each verdict tests every assertion at p < 0.05. A run with 20 cases and 3
+assertions makes 60 tests, so about 3 false `regressed` or `improved` verdicts
+are expected when nothing changed. `--correction` adjusts the p-values across
+every Fisher test in the run before the verdict rules apply:
+
+| Value | Controls | Choose it when |
+|---|---|---|
+| `none` | Nothing; each test at p < 0.05 (default) | Few cases, or you read verdicts by hand |
+| `holm` | The chance of any false verdict in the run | `--fail-on-regression` gates CI on a small, stable suite |
+| `bh` | The share of false verdicts among the significant ones | Many cases, screening for where to look |
+
+Zero-tolerance failures need no p-value and stay `regressed` under every
+method. A verdict the correction changed shows `*`, and `summary.json` keeps
+it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
+method to a stored run without new trials. Cases whose two runs of the same
+revision often disagree need a stricter method, or more trials.
 
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">

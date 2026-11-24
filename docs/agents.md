@@ -29,7 +29,13 @@ The final document of `run`, `compare`, and `regrade` has `run_dir`,
 `stopped_early`, `regressed` (a list of `"<case> <host>"`), and `summary`, whose
 `revisions` maps each arm to the revision it ran.
 `seatrial schema --json` prints the case, evidence, status, verdict, and
-exit-code contract.
+exit-code contract, and the summary fields under `summary_fields`.
+
+`summary.multiple_comparisons` names the correction (`method`), the number of
+Fisher tests it covered (`family_size`), and `alpha`. Each decision keeps raw
+`p_values`; with a method other than `none` it adds `adjusted_p_values`, and
+`verdict_uncorrected` when the correction changed the verdict. The `regressed`
+list and exit code 4 use the corrected verdicts.
 
 ## Procedure
 

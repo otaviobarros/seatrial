@@ -199,6 +199,48 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         ok, out = self.cli('report', str(work), '--format', 'markdown')
         self.assertIn('| demo-001 | fake | none |', out)
 
+    def test_correction_changes_the_regression_gate_and_keeps_documented_fields(self):
+        class HalfHead(Fake):  # The first five head trials skip the file: 10/10 against 5/10, raw p = 0.0325.
+            failed = 0
+
+            def command(self, trial):
+                prompt = trial.prompt
+                if trial.plugin.name == 'p1' and HalfHead.failed < 5:
+                    HalfHead.failed += 1
+                    prompt = 'fail ' + prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        argv = ('compare', '--base', 'HEAD', '--case', 'demo-001', '--host', 'fake', '--n', '10',
+                '--fail-on-regression', '--json')
+        with mock.patch.object(hosts, 'get', lambda name: HalfHead()):
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                raw = cli.main(['--config', str(self.cfg.file), *argv])
+            HalfHead.failed = 0
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                corrected = cli.main(['--config', str(self.cfg.file), *argv, '--correction', 'holm'])
+        self.assertEqual((raw, corrected), (cli.EXIT['regressed'], cli.EXIT['ok']))
+        document = json.loads(out.getvalue())
+        self.assertEqual(document['regressed'], [])
+        summary = json.loads((Path(document['run_dir']) / 'summary.json').read_text())
+        self.assertEqual(summary['multiple_comparisons'], {'method': 'holm', 'family_size': 2, 'alpha': 0.05})
+        decision = summary['cases']['demo-001']['hosts']['fake']['decision']
+        self.assertEqual(decision['verdict_uncorrected'], 'regressed')
+        self.assertEqual(set(decision['p_values']), set(decision['adjusted_p_values']))
+        self.assertTrue(all(isinstance(v, float) for v in decision['adjusted_p_values'].values()))
+        # Every summary field that schema documents exists with the documented shape.
+        with contextlib.redirect_stdout(io.StringIO()) as schema:
+            cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
+        documented = json.loads(schema.getvalue())['summary_fields']
+        for path in documented:
+            node = summary
+            for part in path.replace('<id>', 'demo-001').replace('<host>', 'fake').split('.'):
+                self.assertIn(part, node, path)
+                node = node[part]
+        # report re-applies a correction to the stored summary without a new run.
+        ok, text = self.cli('report', document['run_dir'], '--correction', 'none', '--json')
+        self.assertEqual(json.loads(text)['summary']['cases']['demo-001']['hosts']['fake']['decision']['verdict'],
+                         'regressed')
+
     def test_run_without_the_skill_combines_with_holdout(self):
         toml = self.cfg.cases / 'demo/demo-002/case.toml'
         toml.write_text(toml.read_text() + 'holdout = true\n')

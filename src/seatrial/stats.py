@@ -53,10 +53,47 @@ def mann_whitney(base, head):
     return erfc(distance / sqrt(2 * variance))
 
 
-def decide(assertions, primary, base, head, n):
+ALPHA = 0.05
+CORRECTIONS = ('none', 'holm', 'bh')
+
+
+def holm(p_values):
+    """Holm step-down adjusted p-values, in input order; controls the family-wise error rate."""
+    m = len(p_values)
+    adjusted, running = [0.0] * m, 0.0
+    for rank, index in enumerate(sorted(range(m), key=lambda i: p_values[i])):
+        running = max(running, min(1.0, (m - rank) * p_values[index]))
+        adjusted[index] = running
+    return adjusted
+
+
+def benjamini_hochberg(p_values):
+    """Benjamini-Hochberg adjusted p-values, in input order; controls the false discovery rate."""
+    m = len(p_values)
+    adjusted, running = [0.0] * m, 1.0
+    for rank, index in reversed(list(enumerate(sorted(range(m), key=lambda i: p_values[i]), start=1))):
+        running = min(running, m * p_values[index] / rank)
+        adjusted[index] = min(1.0, running)
+    return adjusted
+
+
+def adjust(p_values, method):
+    """Adjusted p-values for one family of tests; method is one of CORRECTIONS."""
+    if method == 'holm':
+        return holm(p_values)
+    if method == 'bh':
+        return benjamini_hochberg(p_values)
+    if method == 'none':
+        return list(p_values)
+    raise ValueError(f'unknown correction {method!r}; choose one of {", ".join(CORRECTIONS)}')
+
+
+def decide(assertions, primary, base, head, n, adjusted=None):
     """Compare two arms of one case on one host.
 
     base and head hold 'valid' (graded trials) and 'assertion_passes' ({id: count}).
+    adjusted maps each assertion to a corrected p-value; when given, the Fisher
+    thresholds below use it in place of the raw p-value.
     - regressed: a zero-tolerance assertion newly fails, or any assertion is
       significantly worse (Fisher p < 0.05).
     - improved: the primary assertion is significantly better and head has no
@@ -71,15 +108,19 @@ def decide(assertions, primary, base, head, n):
     bp, hp = base['assertion_passes'], head['assertion_passes']
     p = {a: fisher(bp[a], nb, hp[a], nh) for a in assertions}  # Full precision; round only for display.
     new_zero = [a for a, kind in assertions.items() if kind == 'zero' and hp[a] < nh and bp[a] == nb]
-    worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and p[a] < 0.05]
+    gate = adjusted if adjusted is not None else p
+    worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and gate[a] < ALPHA]
     zero_fail_head = any(hp[a] < nh for a, kind in assertions.items() if kind == 'zero')
     if new_zero or worse:
         verdict = 'regressed'
-    elif hp[primary] / nh > bp[primary] / nb and p[primary] < 0.05 and not zero_fail_head:
+    elif hp[primary] / nh > bp[primary] / nb and gate[primary] < ALPHA and not zero_fail_head:
         verdict = 'improved'
     elif not zero_fail_head and all(hp[a] / nh >= bp[a] / nb - 2 / n for a in assertions):
         verdict = 'non-inferior'
     else:
         verdict = 'inconclusive'
-    return {'verdict': verdict, 'p_values': p, 'new_zero_tolerance_failures': new_zero,
-            'significantly_worse': worse}
+    result = {'verdict': verdict, 'p_values': p, 'new_zero_tolerance_failures': new_zero,
+              'significantly_worse': worse}
+    if adjusted is not None:
+        result['adjusted_p_values'] = dict(adjusted)
+    return result

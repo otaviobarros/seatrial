@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 import sys
 
-from seatrial import __version__, config, report, runner, setup, ui, workspace
+from seatrial import __version__, config, report, runner, setup, stats, ui, workspace
 from seatrial import cases as case_index
 from seatrial import hosts as registry
 from seatrial.ports import EVIDENCE_KEYS, OPTIONAL_EVIDENCE_KEYS
@@ -86,7 +86,14 @@ def add_run_options(parser):
     parser.add_argument('--dry-run', action='store_true', help='Print the trial plan; make no native calls')
     parser.add_argument('--fail-on-regression', action='store_true',
                         help=f'Exit {EXIT["regressed"]} when a comparison verdict is "regressed"')
+    add_correction(parser)
     add_json(parser)
+
+
+def add_correction(parser, default='none'):
+    parser.add_argument('--correction', choices=stats.CORRECTIONS, default=default,
+                        help='Adjust Fisher p-values across all cases and hosts: holm (family-wise) or bh '
+                             '(false discovery rate); default ' + (default or 'as stored'))
 
 
 def add_json(parser):
@@ -137,6 +144,9 @@ def build_parser():
         sub.add_argument('run_dir', nargs='?', default='latest', help='Run directory, or latest (default)')
         if name == 'report':
             sub.add_argument('--format', choices=('table', 'markdown'), default='table')
+            add_correction(sub, default=None)
+        else:
+            add_correction(sub)
         add_json(sub)
     hosts = commands.add_parser('hosts', help='List host adapters')
     hosts.add_argument('--no-probe', action='store_true', help='Skip host CLI version calls')
@@ -320,7 +330,7 @@ def command_trials(parser, args, revisions):
 
 
 def publish(args, meta, records, chosen, work, name='summary.json'):
-    summary = report.summarize(meta, records, chosen)
+    summary = report.summarize(meta, records, chosen, getattr(args, 'correction', None) or 'none')
     (work / name).write_text(json.dumps(summary, indent=2) + '\n')
     regressed = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
                  if (r.get('decision') or {}).get('verdict') == 'regressed']
@@ -371,6 +381,8 @@ def command_report(parser, args):
     if not path.exists():
         parser.error(f'{work} has no summary; the run may still be going, or it stopped: run `seatrial regrade {work}`')
     summary = json.loads(path.read_text())
+    if args.correction:
+        summary = report.correct(summary, args.correction)
     text = report.markdown(summary) if args.format == 'markdown' else report.terminal(summary)
     emit(args, {'run_dir': str(work), 'summary': summary}, text)
     return EXIT['ok']
@@ -429,6 +441,16 @@ def command_schema(parser, args):
                      'auto': 'the prompt is the request alone; the plugin stays mounted'},
         'built_in_assertions': {'skill_triggered': 'the trace shows the case skill; declare it under assertions to use it'},
         'verdicts': ['improved', 'non-inferior', 'regressed', 'inconclusive'],
+        'corrections': {'none': 'raw Fisher p-values (default)',
+                        'holm': 'Holm step-down; controls the family-wise error rate',
+                        'bh': 'Benjamini-Hochberg; controls the false discovery rate'},
+        'summary_fields': {
+            'multiple_comparisons': '{method: str, family_size: int, alpha: float}',
+            'cases.<id>.hosts.<host>.decision.p_values': '{assertion: float}, raw Fisher p-values',
+            'cases.<id>.hosts.<host>.decision.adjusted_p_values': '{assertion: float}; present when method is '
+                                                                  'not none',
+            'cases.<id>.hosts.<host>.decision.verdict_uncorrected': 'str; present only when the correction '
+                                                                    'changed the verdict'},
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',
                                              'collect', 'release', 'classify') if hasattr(HostAdapter, m)],
         'exit_codes': EXIT,

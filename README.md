@@ -222,9 +222,10 @@ median lines added, mean wall time, and host-reported cost. Use
 ### Many cases at once
 
 Each verdict tests every assertion at p < 0.05. A run with 20 cases and 3
-assertions makes 60 tests, so about 3 false `regressed` or `improved` verdicts
-are expected when nothing changed. `--correction` adjusts the p-values across
-every Fisher test in the run before the verdict rules apply:
+assertions makes 60 tests, and each test can give a false `regressed` or
+`improved` verdict up to 5% of the time when nothing changed, so false verdicts
+add up as cases grow. `--correction` adjusts the p-values across the run's
+Fisher tests before the verdict rules apply:
 
 | Value | Controls | Choose it when |
 |---|---|---|
@@ -232,8 +233,10 @@ every Fisher test in the run before the verdict rules apply:
 | `holm` | The chance of any false verdict in the run | `--fail-on-regression` gates CI on a small, stable suite |
 | `bh` | The share of false verdicts among the significant ones | Many cases, screening for where to look |
 
-Zero-tolerance failures need no p-value and stay `regressed` under every
-method. A verdict the correction changed shows `*`, and `summary.json` keeps
+The family leaves out tests that cannot reach p < 0.05 with their pass counts,
+such as 10/10 against 10/10; they keep their raw p-value. Zero-tolerance
+failures and decisions with too few valid trials have no p-values, stay outside
+the family, and keep their verdict under every method. A verdict the correction changed shows `*`, and `summary.json` keeps
 it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
 method to a stored run without new trials. Cases whose two runs of the same
 revision often disagree need a stricter method, or more trials.

@@ -32,9 +32,12 @@ The final document of `run`, `compare`, and `regrade` has `run_dir`,
 exit-code contract, and the summary fields under `summary_fields`.
 
 `summary.multiple_comparisons` names the correction (`method`), the number of
-Fisher tests it covered (`family_size`), and `alpha`. Each decision keeps raw
-`p_values`; with a method other than `none` it adds `adjusted_p_values`, and
-`verdict_uncorrected` when the correction changed the verdict. The `regressed`
+Fisher tests it covered (`family_size`), and `alpha`. The family leaves out
+tests whose pass counts cannot reach p < `alpha`. A decision with a `reason`,
+such as a new zero-tolerance failure or too few valid trials, has no p-values.
+Other decisions keep raw `p_values`; with a method other than `none` they add
+`adjusted_p_values`, and `verdict_uncorrected` when the correction changed the
+verdict. A tool should read these fields only when they are present. The `regressed`
 list and exit code 4 use the corrected verdicts.
 
 ## Procedure

@@ -33,6 +33,15 @@ def fisher(a, n1, b, n2):
                         if probability(x) <= observed * (1 + 1e-9)))
 
 
+def min_attainable_p(a, n1, b, n2):
+    """The smallest Fisher p-value any table with these margins can reach.
+
+    A test whose minimum is at or above alpha can never be significant; leaving it
+    out of a correction family keeps the correction from over-penalizing (Tarone)."""
+    k = a + b
+    return min(fisher(x, n1, k - x, n2) for x in range(max(0, k - n2), min(n1, k) + 1))
+
+
 def mann_whitney(base, head):
     """Two-sided rank test with normal approximation, ties, and continuity correction."""
     if not base or not head:

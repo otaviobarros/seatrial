@@ -91,8 +91,10 @@ def summarize(meta, records, cases, correction='none'):
 def correct(summary, method):
     """Recompute every verdict with p-values adjusted across the run's Fisher tests.
 
-    The family is every assertion of every case and host with a decision; zero-tolerance
-    failures do not use p-values and stay outside it. Works on a stored summary too."""
+    The family is every assertion of every case and host with a decision whose margins
+    allow p < alpha; an assertion that cannot reach significance, such as 10/10 against
+    10/10, stays outside it and keeps its raw p-value. A new zero-tolerance failure does
+    not use p-values. Works on a stored summary too."""
     plain, tests = {}, []
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
@@ -101,10 +103,14 @@ def correct(summary, method):
                 continue
             decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], summary['n'])
             plain[(case_id, host)] = decision
-            tests += [(case_id, host, a, p) for a, p in sorted((decision.get('p_values') or {}).items())]
-    adjusted = {}
+            for assertion, p in sorted((decision.get('p_values') or {}).items()):
+                counts = (arms['base']['assertion_passes'][assertion], arms['base']['valid'],
+                          arms['head']['assertion_passes'][assertion], arms['head']['valid'])
+                if stats.min_attainable_p(*counts) < stats.ALPHA:
+                    tests.append((case_id, host, assertion, p))
+    adjusted = {key: dict(decision['p_values']) for key, decision in plain.items() if 'p_values' in decision}
     for (case_id, host, assertion, _), value in zip(tests, stats.adjust([t[3] for t in tests], method)):
-        adjusted.setdefault((case_id, host), {})[assertion] = value
+        adjusted[(case_id, host)][assertion] = value
     for (case_id, host), decision in plain.items():
         if method != 'none' and (case_id, host) in adjusted:
             entry = summary['cases'][case_id]
@@ -130,11 +136,11 @@ def correction_note(summary):
             f"{changed} changed (marked *)")
 
 
-def verdict_text(decision):
+def verdict_text(decision, style=str):
     """The verdict, with * when the multiple-comparison correction changed it."""
     if not decision:
         return '-'
-    return decision['verdict'] + ('*' if 'verdict_uncorrected' in decision else '')
+    return style(decision['verdict']) + ('*' if 'verdict_uncorrected' in decision else '')
 
 
 def arm_label(summary, arm):
@@ -191,8 +197,7 @@ def terminal(summary):
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
                              s['wall_s_mean'] or '-',
                              '-' if s['cost_usd_total'] is None else f"{s['cost_usd_total']:.2f}",
-                             (ui.verdict(decision['verdict']) + ('*' if 'verdict_uncorrected' in decision else ''))
-                             if decision and arm == 'head' else ''])
+                             verdict_text(decision, ui.verdict) if decision and arm == 'head' else ''])
                 invalid = {k: v for k, v in s['statuses'].items() if k not in GRADED}
                 if invalid:
                     notes.append(ui.warn(f'{case_id} {host} {label}: invalid trials {invalid}'))

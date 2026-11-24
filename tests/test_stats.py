@@ -60,7 +60,6 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(decide(7, 2)['verdict'], 'inconclusive')
         self.assertEqual(decide(2, 7)['verdict'], 'non-inferior')
 
-
     def test_holm_and_benjamini_hochberg_match_reference_values(self):
         p = [0.01, 0.04, 0.03, 0.005]
         for got, want in zip(stats.holm(p), [0.03, 0.06, 0.06, 0.02]):
@@ -76,6 +75,13 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(stats.adjust([0.01, 0.2], 'none'), [0.01, 0.2])
         with self.assertRaises(ValueError):
             stats.adjust([0.1], 'bonferroni')
+
+    def test_min_attainable_p_marks_tests_that_cannot_be_significant(self):
+        self.assertEqual(stats.min_attainable_p(10, 10, 10, 10), 1.0)
+        self.assertAlmostEqual(stats.min_attainable_p(9, 9, 9, 9), 1.0)
+        self.assertAlmostEqual(stats.min_attainable_p(10, 10, 9, 10), 1.0)  # One failure anywhere: p >= 1.0.
+        self.assertLess(stats.min_attainable_p(10, 10, 5, 10), 0.05)
+        self.assertLess(stats.min_attainable_p(5, 10, 5, 10), 0.05)
 
     def test_adjusted_p_values_gate_the_verdict(self):
         base, head = arm(10, behavior=10), arm(10, behavior=5)  # Raw p = 0.0325.

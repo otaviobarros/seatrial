@@ -27,7 +27,8 @@ class CorrectionTests(unittest.TestCase):
     def test_holm_removes_borderline_regressions_and_records_the_raw_verdict(self):
         data = summary([(6, 1)] * 5 + [(9, 9)] * 5)  # 6/9 against 1/9 has raw p = 0.0498.
         self.assertEqual(verdicts(data).count('regressed'), 5)
-        self.assertEqual(data['multiple_comparisons'], {'method': 'none', 'family_size': 20, 'alpha': 0.05})
+        # 9/9 against 9/9 cannot reach p < 0.05, so only the five 6/9 against 1/9 tests count.
+        self.assertEqual(data['multiple_comparisons'], {'method': 'none', 'family_size': 5, 'alpha': 0.05})
         corrected = report.correct(json.loads(json.dumps(data)), 'holm')
         self.assertEqual(verdicts(corrected).count('regressed'), 0)
         changed = [e['hosts']['fake']['decision'] for e in corrected['cases'].values()
@@ -46,6 +47,12 @@ class CorrectionTests(unittest.TestCase):
         self.assertFalse(any('adjusted_p_values' in e['hosts']['fake']['decision'] or
                              'verdict_uncorrected' in e['hosts']['fake']['decision']
                              for e in restored['cases'].values()))
+
+    def test_untestable_assertions_keep_their_raw_p_values(self):
+        data = report.correct(summary([(6, 1), (9, 9)]), 'holm')
+        trivial = data['cases']['demo-001']['hosts']['fake']['decision']
+        self.assertEqual(trivial['adjusted_p_values'], trivial['p_values'])
+        self.assertEqual(data['multiple_comparisons']['family_size'], 1)
 
     def test_decisions_without_p_values_stay_outside_the_family(self):
         data = summary([(9, 9)])

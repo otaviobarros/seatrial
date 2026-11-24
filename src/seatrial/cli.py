@@ -144,9 +144,7 @@ def build_parser():
         sub.add_argument('run_dir', nargs='?', default='latest', help='Run directory, or latest (default)')
         if name == 'report':
             sub.add_argument('--format', choices=('table', 'markdown'), default='table')
-            add_correction(sub, default=None)
-        else:
-            add_correction(sub)
+        add_correction(sub, default=None)
         add_json(sub)
     hosts = commands.add_parser('hosts', help='List host adapters')
     hosts.add_argument('--no-probe', action='store_true', help='Skip host CLI version calls')
@@ -319,7 +317,7 @@ def command_trials(parser, args, revisions):
         return EXIT['ok']
     options = {'n': values['n'], 'models': models, 'effort': args.effort, 'timeout': args.timeout,
                'jobs': values['jobs'], 'max_minutes': values['max_minutes'], 'max_cost_usd': args.max_cost_usd,
-               'budget_usd': args.budget_usd, 'trigger': args.trigger}
+               'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction}
     if not args.json:
         print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'))
     try:
@@ -330,7 +328,9 @@ def command_trials(parser, args, revisions):
 
 
 def publish(args, meta, records, chosen, work, name='summary.json'):
-    summary = report.summarize(meta, records, chosen, getattr(args, 'correction', None) or 'none')
+    correction = (getattr(args, 'correction', None) or meta.get('correction')
+                  or (meta.get('multiple_comparisons') or {}).get('method') or 'none')
+    summary = report.summarize(meta, records, chosen, correction)
     (work / name).write_text(json.dumps(summary, indent=2) + '\n')
     regressed = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
                  if (r.get('decision') or {}).get('verdict') == 'regressed']
@@ -445,10 +445,13 @@ def command_schema(parser, args):
                         'holm': 'Holm step-down; controls the family-wise error rate',
                         'bh': 'Benjamini-Hochberg; controls the false discovery rate'},
         'summary_fields': {
-            'multiple_comparisons': '{method: str, family_size: int, alpha: float}',
-            'cases.<id>.hosts.<host>.decision.p_values': '{assertion: float}, raw Fisher p-values',
-            'cases.<id>.hosts.<host>.decision.adjusted_p_values': '{assertion: float}; present when method is '
-                                                                  'not none',
+            'multiple_comparisons': '{method: str, family_size: int, alpha: float}; the family leaves out '
+                                    'tests whose pass counts cannot reach p < alpha',
+            'cases.<id>.hosts.<host>.decision.p_values': '{assertion: float}, raw Fisher p-values; absent when '
+                                                         'the decision has a reason',
+            'cases.<id>.hosts.<host>.decision.adjusted_p_values': '{assertion: float}; present when p_values is '
+                                                                  'and method is not none; equals the raw value '
+                                                                  'for a test outside the family',
             'cases.<id>.hosts.<host>.decision.verdict_uncorrected': 'str; present only when the correction '
                                                                     'changed the verdict'},
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',

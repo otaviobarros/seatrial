@@ -127,7 +127,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `run [--rev REV]` | Run cases against one skill revision |
 | `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
 | `runs` | List retained run directories, newest first |
-| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--correction` to re-apply a method |
+| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
@@ -213,11 +213,29 @@ and the command exits 1.
 | `non-inferior` | No assertion drops by more than two trials' worth |
 | `inconclusive` | Otherwise, or fewer than 80% of the trials in a revision are valid |
 
-Ten trials per revision detect a change of about 50 percentage points on the
-primary assertion. With 3 trials, `improved` is not possible. Report a
+Ten trials per revision detect only changes of about 60 percentage points on
+the primary assertion, and none from a 50% pass rate; 30 trials detect about 30
+points. With 3 trials, `improved` is not possible. Report a
 non-significant result as "no detected effect". The report also shows pass^k,
 median lines added, mean wall time, and host-reported cost. Use
 `--fail-on-regression` to exit 4 on any `regressed` verdict.
+
+Each primary pass count comes with its 95% Wilson interval, for example
+`7/10 (40–89%)`: the range of true pass rates that fit the trials. Wide or
+overlapping intervals mean the run is too small to tell the revisions apart.
+Each verdict also comes with a reading: the evidence behind it, why it holds, and,
+when the result is undecided, how many trials per revision would decide it.
+`summary.json` stores the reading as fields under `interpretation`.
+[Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md)
+explains the method and how to read it.
+
+`--format comment` on `run`, `compare`, or `report` prints Markdown for a pull
+request comment on any platform: one line per verdict count, then the regressed
+and inconclusive cases, then the full table in a collapsed block. Progress goes
+to stderr, so stdout holds only the Markdown. `--summary-file PATH` also appends
+that Markdown to a file, such as a CI job summary.
+[Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
+has recipes for GitHub Actions, GitLab CI, Azure Pipelines, and any other platform.
 
 ### Many cases at once
 
@@ -259,7 +277,7 @@ directory: `runs`, `report latest`, and `regrade` show only the current project'
 |---|---|
 | `run.json` | The run settings and revisions, including `trigger_override`, written before the first trial |
 | `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path; `trigger` is the trial's trigger mode (`auto` for NONE), and `other_skills` lists other plugin skills it loaded, by resolved path |
-| `summary.json` | Per-case, per-host, per-revision summaries and verdicts; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
+| `summary.json` | Per-case, per-host, per-revision summaries with 95% pass-rate intervals, and verdicts with their `interpretation`; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
 
 </details>
@@ -295,6 +313,8 @@ retained trial files before you inspect them with tools that write.
 - [Writing cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md): `case.toml`, `case.py`, evidence, and grading helpers.
 - [Hosts](https://github.com/otaviobarros/seatrial/blob/main/docs/hosts.md): built-in adapters and how to add one.
 - [Using seatrial from an agent](https://github.com/otaviobarros/seatrial/blob/main/docs/agents.md): JSON output, exit codes, and a safe procedure.
+- [Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md): how verdicts, intervals, and trial estimates work, and how to read them.
+- [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md): pull request comments, job summaries, and gates on any platform.
 
 ## License
 

@@ -137,6 +137,8 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         demo = summary['cases']['demo-001']['hosts']['fake']
         self.assertEqual(demo['arms']['head']['all_pass'], 1)
         self.assertEqual(demo['decision']['verdict'], 'non-inferior')
+        self.assertFalse(demo['interpretation']['underpowered'])
+        self.assertIsNone(demo['interpretation']['trials_needed'])
         self.assertIn('non-inferior', out)
         ok, out = self.cli('regrade', str(work))
         self.assertTrue(ok)
@@ -193,11 +195,49 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertEqual({r['trigger'] for r in base}, {'auto'})
         self.assertTrue(all(prompt == 'Write hello.txt.' for plugin, prompt in prompts if plugin is None))
         summary = json.loads((work / 'summary.json').read_text())
-        self.assertEqual(summary['cases']['demo-001']['hosts']['fake']['decision']['verdict'], 'improved')
+        demo = summary['cases']['demo-001']['hosts']['fake']
+        self.assertEqual(demo['decision']['verdict'], 'improved')
+        self.assertEqual(demo['arms']['base']['primary_ci'], [0.0, 0.2775])
+        self.assertEqual(demo['arms']['head']['primary_ci'], [0.7225, 1.0])
+        self.assertEqual(demo['arms']['head']['assertion_ci'], {'behavior': [0.7225, 1.0], 'preserved': [0.7225, 1.0]})
+        self.assertEqual(demo['interpretation']['evidence'], 'strong')
+        self.assertIn('0/10 (0–28%) in base and 10/10 (72–100%) in head', demo['interpretation']['explanation'])
         ok, out = self.cli('regrade', str(work))
         self.assertTrue(ok, out)
         ok, out = self.cli('report', str(work), '--format', 'markdown')
-        self.assertIn('| demo-001 | fake | none |', out)
+        self.assertIn('| demo-001 | fake | none | 10/10 | 0/10 (0–28%) |', out)
+        self.assertIn('| demo-001 | fake | head | 10/10 | 10/10 (72–100%) |', out)
+        step = work / 'step-summary.md'
+        step.write_text('earlier step\n')
+        ok, out = self.cli('report', str(work), '--format', 'comment', '--summary-file', str(step))
+        self.assertTrue(ok, out)
+        self.assertTrue(out.startswith('- **improved**: 1\n'), out)
+        self.assertIn('<details>', out)
+        self.assertNotIn('Needs attention', out)
+        self.assertNotIn(str(work), out)
+        self.assertEqual(step.read_text(), 'earlier step\n' + out.rstrip('\n') + '\n\n')
+        self.cli('report', str(work), '--format', 'markdown')
+        self.assertEqual(step.read_text().count('<details>'), 1)
+
+    def test_compare_format_comment_posts_markdown_and_appends_the_summary_file(self):
+        step = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'step-summary.md'
+        for extra in ([], ['--json']):
+            with self.subTest(extra=extra):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = cli.main(['--no-color', '--config', str(self.cfg.file), 'compare', '--base', 'HEAD',
+                                     '--skill', 'demo', '--host', 'fake', '--n', '1', '--format', 'comment', '--summary-file', str(step), *extra])
+                self.assertEqual(code, 0, err.getvalue())
+                if extra:
+                    payload = json.loads(out.getvalue())
+                    self.assertIn('underpowered', payload)
+                    self.assertTrue(Path(payload['run_dir']).is_dir())
+                else:
+                    self.assertTrue(out.getvalue().startswith('- **'), out.getvalue())
+                    self.assertIn('<details>', out.getvalue())
+                    self.assertNotIn('run directory', out.getvalue())
+                    self.assertIn('run directory (local only): ', err.getvalue())
+        self.assertEqual(step.read_text().count('<summary>Full results</summary>'), 2)
 
     def test_correction_changes_the_regression_gate_and_keeps_documented_fields(self):
         class HalfHead(Fake):  # Per case, five head trials skip the file: 10/10 against 5/10, raw p = 0.0325.

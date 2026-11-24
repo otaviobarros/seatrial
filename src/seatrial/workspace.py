@@ -28,9 +28,9 @@ def git(*args, cwd=None, strip=True):
     return out.strip() if strip else out
 
 
-def _skipped(path):
-    """True for runtime artifacts and files that mounts never copy."""
-    return bool(RUNTIME.intersection(path.parts)) or any(
+def _skipped(path, mounted=True):
+    """True for caches, and for runtime artifacts in mounted files; a fixture may seed `.scratch`."""
+    return (mounted and bool(RUNTIME.intersection(path.parts))) or any(
         fnmatch.fnmatch(part, pattern) for part in path.parts for pattern in IGNORE)
 
 
@@ -44,7 +44,7 @@ def changed_files(ref):
         top = Path(git('rev-parse', '--show-toplevel', cwd=cfg.root)).resolve()
         tops = {Path(git('rev-parse', '--show-toplevel', cwd=f)).resolve() for f in (cfg.skills, cfg.cases)
                 if f.is_dir()}
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, OSError):
         tops = None
     if tops is None or tops - {top}:
         raise ValueError(f'--changed needs {config.FILENAME}, the skills, and the cases in one Git repository')
@@ -58,7 +58,8 @@ def changed_files(ref):
     except subprocess.CalledProcessError:
         raise ValueError(f'--changed {ref}: not a Git revision in {top}') from None
     paths = (Path(p) for p in (tracked + '\0' + untracked).split('\0') if p)
-    return top, sorted({top / p for p in paths if not _skipped(p)})
+    cases = cfg.cases.resolve()
+    return top, sorted({top / p for p in paths if not _skipped(p, mounted=not (top / p).is_relative_to(cases))})
 
 
 def source():

@@ -222,6 +222,11 @@ def affected(cases, paths, top):
     show = lambda p: os.path.relpath(p, top)
     skill_root = cfg.skills / 'skills' if cfg.layout == 'plugin' else cfg.skills
     inputs = [cfg.cases, Path(cfg.state).resolve()]  # Evaluation inputs inside the skills folder are not mounted.
+    # A python_path folder that holds the cases or the skills, such as `evals` or the repository
+    # root, leaves those files to the narrower rules below.
+    nested = [*inputs, cfg.skills]
+    on_python_path = lambda path: any(
+        _inside(path, f) and not any(_inside(n, f) and _inside(path, n) for n in nested) for f in cfg.python_path)
     every, reasons = [], {}
     def add(case, reason):
         reasons.setdefault(case.id, [])
@@ -232,16 +237,17 @@ def affected(cases, paths, top):
             every.append(f'configuration {show(path)}')
         elif any(_inside(path, f) for f in cfg.identity_files):
             every.append(f'identity file {show(path)}')
-        elif any(_inside(path, f) for f in cfg.python_path):
+        elif on_python_path(path):
             every.append(f'python_path {show(path)}')
         elif any(_inside(path, p) for p in inputs):
             pass
-        elif _inside(path, skill_root) and path != skill_root and \
-                len(path.relative_to(skill_root).parts) > 1:
+        elif _inside(path, skill_root) and len(path.relative_to(skill_root).parts) > 1:
             name = path.relative_to(skill_root).parts[0]
-            for case in cases.values():
-                if case.skill == name:
-                    add(case, f'skill {name}')
+            users = [c for c in cases.values() if c.skill == name]
+            if not users and not (skill_root / name / 'SKILL.md').is_file():
+                every.append(f'skills file {show(path)}')  # A folder that skills share, not a skill.
+            for case in users:
+                add(case, f'skill {name}')
         elif _inside(path, cfg.skills):
             every.append(f'skills file {show(path)}')
         if not _inside(path, cfg.cases):

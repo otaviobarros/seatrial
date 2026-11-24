@@ -89,6 +89,25 @@ class ChangedTests(ProjectCase, unittest.TestCase):
                 self.assertEqual(set(found), {'demo-001', 'demo-002', 'other-001', 'other-002'})
                 self.assertEqual(found['other-002'], [reason])
 
+    def test_a_folder_in_the_skills_root_that_is_not_a_skill_selects_every_case(self):
+        self.edit('plugin/skills/_refs/contract.md')
+        code, found = self.changed()
+        self.assertEqual(code, 0)
+        self.assertEqual(set(found), {'demo-001', 'demo-002', 'other-001', 'other-002'})
+        self.assertEqual(found['demo-001'], ['skills file plugin/skills/_refs/contract.md'])
+
+    def test_a_python_path_that_holds_the_cases_still_narrows_case_changes(self):
+        self.cfg.file.write_text(self.cfg.file.read_text().replace('python_path = []', 'python_path = ["evals"]'))
+        git(self.root, 'commit', '--quiet', '-am', 'test: evals on python_path')
+        self.edit('evals/cases/other/other-002/fixture/new.txt')
+        self.assertEqual(self.changed(), (0, {'other-002': ['case files']}))
+        self.edit('evals/helpers.py')
+        self.assertEqual(self.changed()[1]['demo-001'], ['python_path evals/helpers.py'])
+
+    def test_a_fixture_scratch_folder_counts(self):
+        self.edit('evals/cases/other/other-002/fixture/.scratch/plan.md')
+        self.assertEqual(self.changed(), (0, {'other-002': ['case files']}))
+
     def test_changed_intersects_with_other_selectors(self):
         self.edit('plugin/skills/demo/SKILL.md')
         self.assertEqual(self.changed('--case', 'demo-002'), (0, {'demo-002': ['skill demo']}))

@@ -9,4 +9,5 @@
  "final_message": "Done.",
  "terminal": true,
  "status": "completed"
-}
+,
+ "tools": [{"name": "shell", "input": {"command": "/bin/zsh -lc 'false && cd .agents/skills; cat demo/SKILL.md'"}}]}

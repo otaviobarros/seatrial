@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"t-parent"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"i1","type":"mcp_tool_call","server":"tracker","tool":"get_issue","arguments":{"key":"DEMO-1"},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","server":"tracker","tool":"get_issue","arguments":{"key":"DEMO-1"},"result":{"content":[]},"status":"completed"}}
+{"type":"item.completed","item":{"id":"i2","type":"web_search","query":"release notes"}}
+{"type":"item.completed","item":{"id":"i3","type":"reasoning","text":"Done."}}
+{"type":"item.completed","item":{"id":"i4","type":"agent_message","text":"Read DEMO-1."}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}

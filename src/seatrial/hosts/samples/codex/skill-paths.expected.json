@@ -15,4 +15,5 @@
  "final_message": "Done.",
  "terminal": true,
  "status": "completed"
-}
+,
+ "tools": [{"name": "shell", "input": {"command": "/bin/zsh -lc 'cat \"/work/my project/.agents/skills/demo/SKILL.md\"'"}}, {"name": "shell", "input": {"command": "/bin/zsh -lc 'cd .agents/skills && cat demo/SKILL.md'"}}, {"name": "shell", "input": {"command": "/bin/zsh -lc 'cd /opt/other-plugin && cat .agents/skills/demo/SKILL.md'"}}, {"name": "shell", "input": {"command": "/bin/zsh -lc 'cd \"$SKILLS_DIR\" && cat notes/SKILL.md'"}}]}

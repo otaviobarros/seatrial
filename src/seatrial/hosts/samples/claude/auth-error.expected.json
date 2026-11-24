@@ -1,1 +1,2 @@
-{"commands": [], "final_message": "Not logged in. Please run /login", "terminal": false, "cost_usd": 0, "status": "auth_error"}
+{"commands": [], "final_message": "Not logged in. Please run /login", "terminal": false, "cost_usd": 0, "status": "auth_error",
+ "tools": []}

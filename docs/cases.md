@@ -156,9 +156,28 @@ Before `case.py` runs, the loader sets `CASE`, `ID`, `FIXTURE` (the fixture
 folder), and `SHARED` (`{file stem: module or folder}`).
 
 `evidence` holds the keys of `EVIDENCE_KEYS` in `seatrial/ports.py`: commands,
-edited files, skills loaded, final message, delegations, usage, cost, errors, and
-`terminal`. The runner adds `source_changes`, `git_changed`, `plugin_changed`,
-and `project_base`. `seatrial schema --json` prints the list.
+edited files, skills loaded, final message, delegations, usage, cost, errors,
+and `terminal`. The Claude and Codex adapters also return `tools`, from
+`OPTIONAL_EVIDENCE_KEYS`.
+
+`tools` lists every tool call in call order as `{"name": ..., "input": {...}}`,
+with delegated sessions' calls where they ran. Names come from the host: Claude
+reports `Bash`, `Read`, `Edit`, and `mcp__<server>__<tool>`; Codex reports
+`shell`, `apply_patch`, `web_search`, its collaboration tools such as `wait`, and
+`mcp__<server>__<tool>`.
+
+Codex lists only completed calls, like `commands`, so a call cut off by a timeout
+is in neither. Its stream reports a spawn only as started, so check delegation
+with `delegated(evidence)`, not `spawn_agent`. Codex places a delegated call by
+the time it completed, from the session rollouts; without the parent's rollout,
+delegated calls follow the parent's calls.
+When evidence has no `tools`, as on runs recorded before it existed or on a host
+that cannot show tool calls, `tool_used`, `tool_order`, and `steps_at_most` fail
+with `tool calls not recorded`. Rerun old trials before grading them with these
+helpers.
+
+The runner adds `source_changes`, `git_changed`, `plugin_changed`, and
+`project_base`. `seatrial schema --json` prints the list.
 
 ## Grading helpers
 
@@ -172,6 +191,10 @@ Import from `seatrial.checks`:
 | `skill_loaded(evidence, skill)` | The same check; the runner flags skills from outside the plugin |
 | `delegated(evidence)` | The agent delegated and the delegated sessions were captured |
 | `ran_tests`, `tests_ran`, `no_tests_ran`, `probe_runs` | Inspect the commands the agent ran |
+| `tool_used(evidence, name, matching=None)` | The agent called the tool; `name` may be a set such as `{"Bash", "shell"}`, and `matching` is a dict of input field to regular expression or a function of the input |
+| `tool_order(evidence, first, then, first_matching=None, then_matching=None)` | Every `then` call comes after a `first` call, for example a read before a write; passes when no `then` call ran |
+| `steps_at_most(evidence, n)` | The agent made at most `n` tool calls |
+| `tool_calls(evidence, name, matching=None)` | The matching calls with their positions, for custom checks |
 | `report_matches(evidence, pattern)` | Search the final message |
 | `run`, `clone` | Run the project's checks in a copy, so grading never changes the candidate |
 | `line_counts(project, base)` | Lines added and removed since the base commit |

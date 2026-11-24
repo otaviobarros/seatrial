@@ -35,7 +35,7 @@ trial:
 | `prepare(trial)` | Isolates the host and installs `trial.plugin`; returns the installed path, or `None` when `trial.plugin` is `None` |
 | `command(trial)` | The argument list to launch |
 | `environment(trial, base)` | Optional; the process environment |
-| `collect(trial)` | An evidence dict with every key of `EVIDENCE_KEYS` |
+| `collect(trial)` | An evidence dict with every key of `EVIDENCE_KEYS`; add `tools` only when the trace shows tool calls, because an empty list means the agent made none |
 | `release(trial, lock)` | Optional; removes private state such as a copied login |
 | `classify(process, evidence, stderr)` | Optional; maps host errors to statuses such as `usage_limit` |
 

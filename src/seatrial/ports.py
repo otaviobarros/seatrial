@@ -44,6 +44,12 @@ EVIDENCE_KEYS = {
     'terminal': bool,         # the host reported a completed final turn
 }
 
+# Keys an adapter returns only when its trace shows them. Graders treat a missing key
+# as "not recorded", which differs from an empty list.
+OPTIONAL_EVIDENCE_KEYS = {
+    'tools': list,            # tool calls in call order, each {"name": str, "input": dict}
+}
+
 
 def new_evidence():
     return {'commands': [], 'file_changes': [], 'skills': [], 'final_message': None,
@@ -54,12 +60,16 @@ def new_evidence():
 def validate_evidence(evidence):
     """Return a list of contract problems; an empty list means the evidence is valid."""
     problems = [f'missing {key}' for key in EVIDENCE_KEYS if key not in evidence]
-    for key, kind in EVIDENCE_KEYS.items():
+    for key, kind in (EVIDENCE_KEYS | OPTIONAL_EVIDENCE_KEYS).items():
         if key in evidence and not isinstance(evidence[key], kind):
             problems.append(f'{key} has type {type(evidence[key]).__name__}')
     for key in ('commands', 'file_changes', 'skills', 'errors'):
         if isinstance(evidence.get(key), list) and not all(isinstance(v, str) for v in evidence[key]):
             problems.append(f'{key} must hold strings')
+    if isinstance(evidence.get('tools'), list) and not all(
+            isinstance(t, dict) and isinstance(t.get('name'), str) and isinstance(t.get('input'), dict)
+            for t in evidence['tools']):
+        problems.append('tools must hold {"name": str, "input": dict} entries')
     return problems
 
 

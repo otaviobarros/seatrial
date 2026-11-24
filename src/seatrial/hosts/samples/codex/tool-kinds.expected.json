@@ -1,0 +1,3 @@
+{"commands": [], "final_message": "Read DEMO-1.", "terminal": true, "status": "completed",
+ "tools": [{"name": "mcp__tracker__get_issue", "input": {"key": "DEMO-1"}},
+           {"name": "web_search", "input": {"query": "release notes"}}]}

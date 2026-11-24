@@ -1,4 +1,5 @@
 {"commands": ["make check", "git diff"], "file_changes": [".scratch/verification.json", "notes.md"],
  "skills": ["demo-plugin:verify-change", "/plugin/skills/verify-change/SKILL.md"],
  "final_message": "Final report: AC-1 pass, AC-2 fail.", "delegations": 1, "delegation_traces": 1,
- "cost_usd": 0.019, "errors": [], "terminal": true, "status": "completed"}
+ "cost_usd": 0.019, "errors": [], "terminal": true, "status": "completed",
+ "tools": [{"name": "Skill", "input": {"skill": "demo-plugin:verify-change"}}, {"name": "Read", "input": {"file_path": "/plugin/skills/verify-change/SKILL.md"}}, {"name": "Bash", "input": {"command": "make check"}}, {"name": "Write", "input": {"file_path": "/project/.scratch/verification.json", "content": "{}"}}, {"name": "Edit", "input": {"file_path": "notes.md", "old_string": "a", "new_string": "b"}}, {"name": "Agent", "input": {"description": "review", "prompt": "Review the change."}}, {"name": "Bash", "input": {"command": "git diff"}}]}

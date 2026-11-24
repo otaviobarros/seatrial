@@ -206,6 +206,7 @@ class CommandTests(ProjectCase, unittest.TestCase):
         schema = json.loads(out)
         self.assertEqual(schema['exit_codes'], cli.EXIT)
         self.assertIn('final_message', schema['evidence_keys'])
+        self.assertEqual(schema['evidence_keys']['tools'], 'list (optional)')
 
     def test_empty_project_lists_no_cases_and_runs_report_nothing(self):
         code, out, _ = self.run_cli('list', '--json')

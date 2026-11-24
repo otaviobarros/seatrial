@@ -26,7 +26,7 @@ import sys
 from seatrial import __version__, config, report, runner, setup, ui, workspace
 from seatrial import cases as case_index
 from seatrial import hosts as registry
-from seatrial.ports import EVIDENCE_KEYS
+from seatrial.ports import EVIDENCE_KEYS, OPTIONAL_EVIDENCE_KEYS
 from seatrial.workspace import NONE, WORKTREE
 
 # Exit codes. Agents and CI can branch on them.
@@ -416,6 +416,7 @@ def command_schema(parser, args):
                                                 '{"_status": "control", "_note": ...}',
                     'globals': ['CASE', 'ID', 'FIXTURE', 'SHARED']},
         'evidence_keys': {k: getattr(v, '__name__', str(v)) for k, v in EVIDENCE_KEYS.items()} | {
+            k: f"{v.__name__} (optional)" for k, v in OPTIONAL_EVIDENCE_KEYS.items()} | {
             'project_base': 'str | None', 'source_changes': 'list', 'git_changed': 'bool',
             'plugin_changed': 'bool'},
         'statuses': {'graded': list(report.GRADED),

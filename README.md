@@ -22,8 +22,8 @@ takes the skill out on a fixed course, many times, and records what happened.
 - **Real agents.** Each trial runs the actual CLI, Claude Code (`claude -p`) or
   Codex (`codex exec`), in a fresh project. Add other hosts through a small
   [adapter](https://github.com/otaviobarros/seatrial/blob/main/docs/hosts.md).
-- **Graded by code.** A case's `grade()` checks files, Git state, commands, and the
-  final message. No model judges the result.
+- **Graded by code.** A case's `grade()` checks files, Git state, commands, tool
+  calls, and the final message. No model judges the result.
 - **Two revisions, one verdict.** `compare` runs `main` against your uncommitted
   edits, or no skill against your skill, and reports `improved`, `non-inferior`,
   `regressed`, or `inconclusive`.
@@ -47,8 +47,8 @@ Each trial runs these steps:
    `main` or the uncommitted `WORKTREE`, as a plugin.
 3. **Agent.** The real host CLI (`claude` or `codex`) runs the request in a
    fresh, isolated folder.
-4. **Evidence.** seatrial records the commands, file edits, loaded skills, and
-   final message in `evidence.json`.
+4. **Evidence.** seatrial records the commands, file edits, tool calls, loaded
+   skills, and final message in `evidence.json`.
 5. **Grade.** `grade()` checks that evidence and the project, and returns pass or
    fail for each assertion in `case.toml`.
 

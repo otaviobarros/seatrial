@@ -1,6 +1,7 @@
 """Report formats and multiple-comparison correction, built from hand-written summaries; no runs."""
 import json
 import unittest
+from statistics import median
 from unittest import mock
 
 from seatrial import report, stats
@@ -188,7 +189,7 @@ def cost_summary(base_costs, head_costs, head_behavior=10):
     """A stored two-arm summary whose arms carry per-trial costs; correct() adds the cost note."""
     def cost_arm(behavior, costs):
         a = arm(behavior=behavior)
-        a.update(cost_usd_values=costs, cost_usd_median=None)
+        a.update(cost_usd_values=costs, cost_usd_median=median(costs) if costs else None)
         for name in ('num_turns', 'tool_errors', 'wall_s'):
             a[f'{name}_values'] = []
         return a
@@ -245,6 +246,27 @@ class CostTests(unittest.TestCase):
         self.assertEqual((s['num_turns_values'], s['tool_errors_values']), ([4], [1]))
         self.assertEqual(s['wall_s_median'], 15.0)
         self.assertEqual(s['cost_usd_total'], 5.4)  # The total still counts every trial's spend.
+
+    def test_the_note_follows_the_rank_shift_when_the_medians_disagree(self):
+        # Head costs rank higher overall, yet the head median is lower.
+        data, result = cost_summary([0.10] * 16 + [0.20] * 24, [0.15] * 24 + [0.30] * 16)
+        cost = result['efficiency']['cost_usd']
+        self.assertLess(cost['head_median'], cost['base_median'])
+        self.assertEqual(cost['shift'], 'higher')
+        self.assertLess(cost['p_value'], 0.05)
+        self.assertEqual(result['decision']['cost'], 'costlier')
+
+    def test_summaries_without_a_shift_fall_back_to_the_medians(self):
+        decision = {'verdict': 'non-inferior', 'p_values': {}}
+        comparison = {'cost_usd': {'base_median': 0.2, 'head_median': 0.1, 'p_value': 0.01}}
+        self.assertEqual(report.cost_note(decision, comparison), 'cheaper')
+
+    def test_small_median_costs_stay_visible_in_every_format(self):
+        data, _ = cost_summary([0.004] * 10, [0.002] * 10)
+        data['cost_usd_total'] = 0.06
+        self.assertIn('0.0020', report.terminal(data))
+        self.assertIn('Total host-reported cost: 0.06 USD', report.markdown(data))
+        self.assertEqual(report.comment(data).count('Total host-reported cost'), 1)
 
 
 if __name__ == '__main__':

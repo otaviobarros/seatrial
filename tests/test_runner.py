@@ -101,7 +101,8 @@ class RunnerTests(ProjectCase, unittest.TestCase):
             self.assertEqual(decision['effect_primary'], decision['effect'][summary['cases'][case_id]['primary']])
             self.assertEqual(set(result['efficiency']), set(report.EFFICIENCY))
             for value in result['efficiency'].values():
-                self.assertEqual(set(value), {'base_median', 'head_median', 'p_value'})
+                self.assertEqual(set(value), {'base_median', 'head_median', 'shift', 'p_value'})
+                self.assertIn(value.pop('shift'), ('higher', 'lower', 'none', None))
                 self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in value.values()))
             for arm in result['arms'].values():
                 for name in report.EFFICIENCY:

@@ -59,7 +59,7 @@ def effect_text(entry):
     def points(x):
         # One significant digit near 0, so a nonzero bound never prints as −0 or +0.
         value = x * 100
-        return (f'{value:+.1g}' if 0 < abs(value) < 0.5 else f'{value:+.0f}').replace('-', '−')
+        return (f'{value:+.1g}' if 0 < abs(value) < 1 else f'{value:+.0f}').replace('-', '−')
     return f"{points(entry['estimate'])} pp ({points(entry['ci'][0])} to {points(entry['ci'][1])})"
 
 
@@ -239,18 +239,33 @@ def min_attainable_p(a, n1, b, n2):
     return min(fisher(low, n1, k - low, n2), fisher(high, n1, k - high, n2))
 
 
-def mann_whitney(base, head):
-    """Two-sided rank test with normal approximation, ties, and continuity correction."""
-    if not base or not head:
-        return None
+def _u_statistic(base, head):
+    """Mann-Whitney U for base, with the pooled value counts used for the tie correction."""
     counts = Counter(base + head)
     ranks, position = {}, 1
     for value, count in sorted(counts.items()):
         ranks[value] = position + (count - 1) / 2
         position += count
+    return sum(ranks[v] for v in base) - len(base) * (len(base) + 1) / 2, counts
+
+
+def rank_shift(base, head):
+    """'higher' or 'lower' when head values rank above or below base, 'none' when balanced, None when an arm
+    is empty. This is the direction the Mann-Whitney test measures; medians can point the other way."""
+    if not base or not head:
+        return None
+    u, _ = _u_statistic(base, head)
+    middle = len(base) * len(head) / 2
+    return 'none' if u == middle else 'lower' if u > middle else 'higher'
+
+
+def mann_whitney(base, head):
+    """Two-sided rank test with normal approximation, ties, and continuity correction."""
+    if not base or not head:
+        return None
+    u, counts = _u_statistic(base, head)
     nb, nh = len(base), len(head)
     total = nb + nh
-    u = sum(ranks[v] for v in base) - nb * (nb + 1) / 2
     ties = sum(t ** 3 - t for t in counts.values())
     variance = nb * nh / 12 * (total + 1 - ties / (total * (total - 1)))
     if variance == 0:

@@ -59,6 +59,13 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(stats.effect_text(stats.effect(10, 10, 7, 10)), '−30 pp (−60 to +4)')
         self.assertEqual(stats.effect_text(stats.effect(5, 10, 9, 10)), '+40 pp (−0.2 to +68)')
         self.assertEqual(stats.effect_text(stats.effect(1, 5, 4, 5)), '+60 pp (−0.03 to +83)')
+        self.assertEqual(stats.effect_text({'estimate': 0.005, 'ci': [-0.005, 0.009]}), '+0.5 pp (−0.5 to +0.9)')
+
+    def test_rank_shift_names_where_head_values_rank(self):
+        self.assertEqual(stats.rank_shift([1, 2], [3, 4]), 'higher')
+        self.assertEqual(stats.rank_shift([3, 4], [1, 2]), 'lower')
+        self.assertEqual(stats.rank_shift([1, 3], [3, 1]), 'none')
+        self.assertIsNone(stats.rank_shift([], [1]))
 
     def test_decisions_report_the_effect_of_every_assertion(self):
         decision = stats.decide(ASSERTIONS, 'behavior', arm(behavior=10), arm(behavior=7), 10)

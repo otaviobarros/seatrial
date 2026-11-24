@@ -71,6 +71,9 @@ def validate_evidence(evidence):
             isinstance(t, dict) and isinstance(t.get('name'), str) and isinstance(t.get('input'), dict)
             for t in evidence['tools']):
         problems.append('tools must hold {"name": str, "input": dict} entries')
+    if 'tool_errors' in evidence and (isinstance(evidence['tool_errors'], bool) or (
+            isinstance(evidence['tool_errors'], int) and evidence['tool_errors'] < 0)):
+        problems.append('tool_errors must be a count of 0 or more')
     return problems
 
 

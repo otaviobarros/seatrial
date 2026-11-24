@@ -325,7 +325,7 @@ verdict keeps the stop. A budget, deadline, or stopping error ends the run
 without judging the unfinished look; those trials count as skipped, not saved.
 
 <p align="center">
-  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
+  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, median cost, turns, tool errors, effect sizes, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
 </p>
 
 ## Results

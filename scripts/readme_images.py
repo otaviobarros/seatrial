@@ -6,6 +6,7 @@ with synthetic trial records, so it changes when that output changes.
 import random
 import re
 import sys
+import textwrap
 from html import escape
 from pathlib import Path
 from types import SimpleNamespace
@@ -138,10 +139,10 @@ def capture():
     """Compare output for two cases on two hosts, from synthetic trial records."""
     ui.set_color(True)
     random.seed(7)
-    cases = [SimpleNamespace(id='confirm-delete-001', skill='tidy-files', suite='capability', rules=[],
+    cases = [SimpleNamespace(id='confirm-delete-001', skill='tidy-files', suite='capability', holdout=False, rules=[],
                              primary='asks', assertions={'asks': 'rate', 'no-delete': 'zero'},
                              identity=lambda: 'a'),
-             SimpleNamespace(id='keep-tests-001', skill='tidy-files', suite='regression', rules=[],
+             SimpleNamespace(id='keep-tests-001', skill='tidy-files', suite='regression', holdout=False, rules=[],
                              primary='tests-kept', assertions={'tests-kept': 'zero'}, identity=lambda: 'b')]
     passes = {('confirm-delete-001', 'claude'): (4, 10), ('confirm-delete-001', 'codex'): (3, 9),
               ('keep-tests-001', 'claude'): (10, 10), ('keep-tests-001', 'codex'): (10, 10)}
@@ -155,14 +156,19 @@ def capture():
                                 'status': 'completed', 'pass': all(c['passed'] for c in checks),
                                 'assertions': checks, 'wall_s': round(random.uniform(28, 64), 1),
                                 'cost_usd': round(random.uniform(0.02, 0.06), 3) if host == 'claude' else None,
-                                'lines_added': 0})
+                                'usage': {'num_turns': random.randint(6, 14)},
+                                'tool_errors': random.randint(0, 2), 'lines_added': 0})
     summary = report.summarize({'arms': ['base', 'head'], 'n': 10}, records, cases)
     order = sorted(records, key=lambda r: (r['trial_index'], r['case_id'], r['host'], r['arm'] != 'base'))
     lines = [ui.style('$ ', 'gray') + 'seatrial compare --base main --n 10 --max-cost-usd 5',
              ui.banner('seatrial', f'{len(records)} trials on claude, codex')]
     lines += [ui.trial_line(order[k], k + 1, len(records)) for k in range(3)]
     lines += [ui.style('  …', 'dim'), ui.trial_line(order[-1], len(records), len(records)), '']
-    lines += report.terminal(summary).split('\n')
+    table = report.terminal(summary).split('\n')
+    width = max(len(ui.ANSI.sub('', line)) for line in table if not ui.ANSI.sub('', line).startswith('›'))
+    for line in table:  # Wrap the reading notes to the table width, as a narrow terminal would.
+        plain = ui.ANSI.sub('', line)
+        lines += [line] if len(plain) <= width else textwrap.wrap(plain, width, subsequent_indent='  ')
     return lines
 
 

@@ -105,7 +105,7 @@ def efficiency(base, head):
     for name in EFFICIENCY:
         b, h = base.get(f'{name}_values') or [], head.get(f'{name}_values') or []
         result[name] = {'base_median': median(b) if b else None, 'head_median': median(h) if h else None,
-                        'p_value': stats.mann_whitney(b, h)}
+                        'shift': stats.rank_shift(b, h), 'p_value': stats.mann_whitney(b, h)}
     return result
 
 
@@ -115,12 +115,12 @@ def cost_note(decision, comparison):
     cost = (comparison or {}).get('cost_usd') or {}
     if 'p_values' not in decision or cost.get('p_value') is None or cost['p_value'] >= stats.ALPHA:
         return None
-    if cost['head_median'] == cost['base_median']:
-        return None  # Significant rank shift with equal medians: no direction worth reporting.
-    lower = cost['head_median'] < cost['base_median']
-    if lower:
+    # The direction comes from the ranks the test compared; summaries written before `shift` use the medians.
+    shift = cost.get('shift') or (None if cost['head_median'] == cost['base_median'] else
+                                  'lower' if cost['head_median'] < cost['base_median'] else 'higher')
+    if shift == 'lower':
         return 'cheaper' if decision['verdict'] == 'non-inferior' else None
-    return 'costlier'
+    return 'costlier' if shift == 'higher' else None
 
 
 def effect_text(result):
@@ -335,7 +335,9 @@ def markdown(summary, notes=True):
                                     'from outside the plugin or of unknown source, or named the project path')
             if reading(result, gate_alpha(summary)):
                 readings.append(f'- {case_id} {host}: {reading(result, gate_alpha(summary))}')
+    total = summary.get('cost_usd_total') if notes else None  # comment() prints the total itself.
     notes = [n for n in (correction_note(summary), sequential_note(summary)) if n] if notes else []
+    lines += ['', f'Total host-reported cost: {total:.2f} USD'] if total is not None else []
     return '\n'.join(lines + ([''] + failures if failures else []) + [x for n in notes for x in ('', f'{n[0].upper()}{n[1:]}.')]
                      + (['', '**How to read the verdicts**', ''] + readings if readings else []))
 
@@ -410,7 +412,7 @@ def terminal(summary):
                 rows.append([case_id, ui.style(host, 'cyan'), label, f"{s['valid']}/{s['trials']}",
                              primary_text(s, entry['primary']), f"{s['all_pass']}/{s['valid']}",
                              f"{pow_k['value']:.2f}" if pow_k['value'] is not None else '-',
-                             s['wall_s_mean'] or '-', median_text(s, 'cost_usd', 2), median_text(s, 'num_turns'),
+                             s['wall_s_mean'] or '-', median_text(s, 'cost_usd', 4), median_text(s, 'num_turns'),
                              median_text(s, 'tool_errors'), effect_text(result) if decision and arm == 'head' else '',
                              ui.style(verdict_text(result), ui.VERDICT_STYLE.get(decision['verdict'], 'gray'))
                              if decision and arm == 'head' else ''])

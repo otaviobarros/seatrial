@@ -562,9 +562,10 @@ def command_schema(parser, args):
             'cases.<id>.hosts.<host>.decision.cost': 'str | None: one of cost_notes; reported next to the verdict, '
                                                      'never changes it',
             'cases.<id>.hosts.<host>.efficiency': '{metric: {base_median: float|None, head_median: float|None, '
-                                                  'p_value: float|None}} for cost_usd, num_turns, tool_errors, '
-                                                  'and wall_s over valid trials; p_value is Mann-Whitney, None '
-                                                  'when an arm has no values; present with two arms',
+                                                  'shift: higher|lower|none|None, p_value: float|None}} for '
+                                                  'cost_usd, num_turns, tool_errors, and wall_s over valid trials; '
+                                                  'shift is where head values rank and p_value the Mann-Whitney '
+                                                  'test, both None when an arm has no values; present with two arms',
             'cases.<id>.hosts.<host>.arms.<arm>.<metric>_values': '[number] for each efficiency metric over valid '
                                                                   'trials that report it',
             'cases.<id>.hosts.<host>.arms.<arm>.<metric>_median': 'number | None for each efficiency metric'},

@@ -139,9 +139,10 @@ small n it can exclude 0 while Fisher's test is not significant: 6/10 against
 For each comparison, seatrial compares four values per valid trial between
 arms: host-reported `cost_usd`, `num_turns`, `tool_errors`, and `wall_s`. It
 uses the two-sided Mann-Whitney rank test with a normal approximation, as for
-lines added, and stores both medians and the p-value under `efficiency`. A host
-that does not report a value leaves it out; an arm with no values has no
-p-value.
+lines added, and stores both medians, the rank direction `shift`, and the
+p-value under `efficiency`. A host that does not report a value leaves it out;
+an arm with no values has no shift or p-value. The note takes its direction
+from `shift`, because skewed costs can move the medians the other way.
 
 `num_turns` is the count the host reports. The Claude adapter takes it from the
 last result event, so a trial that waits for a background task counts only its
@@ -149,8 +150,8 @@ last segment.
 
 | Note | Rule |
 |---|---|
-| `cheaper` | The verdict is `non-inferior`, and the head median cost is lower with p < 0.05 |
-| `costlier` | Any verdict with p-values, and the head median cost is higher with p < 0.05 |
+| `cheaper` | The verdict is `non-inferior`, and head costs rank lower with p < 0.05 |
+| `costlier` | Any verdict with p-values, and head costs rank higher with p < 0.05 |
 
 The note appears beside the verdict, for example `non-inferior, cheaper`, and in
 `decision.cost`. It never changes `decision.verdict`, the `regressed` list, or

@@ -9,7 +9,8 @@ the NONE revision passes no --plugin-dir.
 With ANTHROPIC_API_KEY set, each trial gets its own CLAUDE_CONFIG_DIR, so user-level
 skills cannot load. A subscription login lives in the user's config, so trials signed in
 that way keep it, and `foreign_skills` reports any skill from outside the plugin.
-Delegated sessions stream into the same trace, marked with parent_tool_use_id.
+Delegated sessions stream into the same trace, marked with parent_tool_use_id, so
+`tools` holds parent and delegated calls in the order the trace shows them.
 """
 import json
 import re
@@ -104,7 +105,7 @@ def _relative(path, project):
 
 
 def parse_stream(path, project='.', prompt=''):
-    """Commands, edits, delegations, usage, and errors from a stream-json trace.
+    """Commands, edits, tool calls, delegations, usage, and errors from a stream-json trace.
 
     The final message is the last `result` event: a run that waits for a background
     subagent emits one result per turn, and only the last one ends the process.
@@ -132,6 +133,7 @@ def parse_stream(path, project='.', prompt=''):
                 if not isinstance(block, dict) or block.get('type') != 'tool_use':
                     continue
                 name, data = block.get('name'), block.get('input') or {}
+                out['tools'].append({'name': str(name or ''), 'input': data if isinstance(data, dict) else {}})
                 if name == 'Bash':
                     out['commands'].append(str(data.get('command', '')))
                 elif name in EDIT_TOOLS:

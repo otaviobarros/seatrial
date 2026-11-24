@@ -7,4 +7,5 @@
  "final_message": "Done.",
  "terminal": true,
  "status": "completed"
-}
+,
+ "tools": [{"name": "shell", "input": {"command": "/bin/zsh -lc 'cd .agents/skills/demo && sed -n 1,200p SKILL.md'"}}]}

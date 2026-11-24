@@ -1,3 +1,4 @@
 {"skills": [".agents/skills/demo/SKILL.md", "/Users/someone/.codex/skills/notes/SKILL.md"],
  "foreign_skills": ["/Users/someone/.codex/skills/notes/SKILL.md"],
- "final_message": "Done.", "terminal": true, "status": "completed"}
+ "final_message": "Done.", "terminal": true, "status": "completed",
+ "tools": [{"name": "shell", "input": {"command": "/bin/zsh -lc 'cat .agents/skills/demo/SKILL.md'"}}, {"name": "shell", "input": {"command": "/bin/zsh -lc 'cat /Users/someone/.codex/skills/notes/SKILL.md'"}}]}

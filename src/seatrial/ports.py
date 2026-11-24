@@ -42,13 +42,14 @@ EVIDENCE_KEYS = {
     'cost_usd': (float, int, type(None)),  # host-reported cost, when the host reports one
     'errors': list,           # host error events, truncated
     'terminal': bool,         # the host reported a completed final turn
+    'tools': list,            # tool calls in call order, each {"name": str, "input": dict}
 }
 
 
 def new_evidence():
     return {'commands': [], 'file_changes': [], 'skills': [], 'final_message': None,
             'delegations': 0, 'delegation_traces': 0, 'usage': None, 'cost_usd': None,
-            'errors': [], 'terminal': False}
+            'errors': [], 'terminal': False, 'tools': []}
 
 
 def validate_evidence(evidence):
@@ -60,6 +61,10 @@ def validate_evidence(evidence):
     for key in ('commands', 'file_changes', 'skills', 'errors'):
         if isinstance(evidence.get(key), list) and not all(isinstance(v, str) for v in evidence[key]):
             problems.append(f'{key} must hold strings')
+    if isinstance(evidence.get('tools'), list) and not all(
+            isinstance(t, dict) and isinstance(t.get('name'), str) and isinstance(t.get('input'), dict)
+            for t in evidence['tools']):
+        problems.append('tools must hold {"name": str, "input": dict} entries')
     return problems
 
 

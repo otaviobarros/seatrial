@@ -35,7 +35,7 @@ trial:
 | `prepare(trial)` | Isolates the host and installs `trial.plugin`; returns the installed path, or `None` when `trial.plugin` is `None` |
 | `command(trial)` | The argument list to launch |
 | `environment(trial, base)` | Optional; the process environment |
-| `collect(trial)` | An evidence dict with every key of `EVIDENCE_KEYS` |
+| `collect(trial)` | An evidence dict with every key of `EVIDENCE_KEYS`; leave `tools` empty when the trace does not show tool calls |
 | `release(trial, lock)` | Optional; removes private state such as a copied login |
 | `classify(process, evidence, stderr)` | Optional; maps host errors to statuses such as `usage_limit` |
 

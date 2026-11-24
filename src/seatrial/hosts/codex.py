@@ -6,7 +6,8 @@ plugin is copied to `<project>/.agents`, where Codex discovers project skills; t
 NONE revision copies nothing. The
 sandbox writes only inside the project, including its `.git`; `.agents` stays read-only.
 Delegated sessions do not appear in the parent's JSON stream; their rollouts in the
-private CODEX_HOME are read before it is deleted.
+private CODEX_HOME are read before it is deleted, so their tool calls follow the
+parent's calls in `tools` rather than interleaving with them.
 """
 import json
 import os
@@ -89,6 +90,7 @@ class Codex(HostAdapter):
             evidence['delegations'] = max(evidence['delegations'], children['sessions'])
             evidence['commands'] += children['commands']
             evidence['file_changes'] += children['file_changes']
+            evidence['tools'] += children['tools']
             evidence['skills'] += children['skills']
             evidence['skill_reads'] = evidence.get('skill_reads', []) + children['skill_reads']
         return evidence
@@ -216,10 +218,52 @@ def _add_reads(out, command, cwd):
     out.setdefault('skill_reads', []).extend(reads)
 
 
+def tool_call(item):
+    """A tool call entry for one Codex item, or None when the item is not a tool call.
+
+    Names follow the Codex item: `shell`, `apply_patch`, `web_search`, the collaboration
+    tool (`spawn_agent`, `wait`, ...), and `mcp__<server>__<tool>` for MCP calls."""
+    kind = item.get('type')
+    if kind == 'mcp_tool_call':
+        arguments = item.get('arguments')
+        return {'name': f"mcp__{item.get('server', '')}__{item.get('tool', '')}",
+                'input': arguments if isinstance(arguments, dict) else {}}
+    if kind == 'web_search':
+        return {'name': 'web_search', 'input': {'query': str(item.get('query', ''))}}
+    if kind == 'collab_tool_call':
+        return {'name': str(item.get('tool', '')),
+                'input': {k: item[k] for k in ('prompt', 'receiver_thread_ids') if item.get(k) is not None}}
+    # Delegated rollouts may omit the item type; the command or changes field identifies the call.
+    if kind == 'command_execution' or item.get('command'):
+        command = item.get('command', '')
+        return {'name': 'shell', 'input': {'command': ' '.join(command) if isinstance(command, list)
+                                           else str(command)}}
+    if kind == 'file_change' or item.get('changes'):
+        found = item.get('changes')
+        paths = [str(p) for p in found] if isinstance(found, dict) else \
+            [str(c.get('path', '')) for c in found or [] if isinstance(c, dict)]
+        return {'name': 'apply_patch', 'input': {'paths': paths}}
+    return None
+
+
+def _add_tool(out, positions, item):
+    """Record a call at its first event; a later event for the same item replaces its input."""
+    call = tool_call(item)
+    if call is None:
+        return
+    key = item.get('id')
+    if key is not None and key in positions:
+        out['tools'][positions[key]] = call
+        return
+    if key is not None:
+        positions[key] = len(out['tools'])
+    out['tools'].append(call)
+
+
 def parse_stream(path):
-    """Commands, edits, delegations, usage, and errors from a `codex exec --json` stream."""
+    """Commands, edits, tool calls, delegations, usage, and errors from a `codex exec --json` stream."""
     out = new_evidence()
-    collab, receivers, spawns = False, set(), 0
+    collab, receivers, spawns, positions = False, set(), 0, {}
     path = Path(path)
     if not path.exists():
         return out
@@ -234,8 +278,11 @@ def parse_stream(path):
             out['usage'] = event.get('usage')
         elif kind in ('turn.failed', 'error'):
             out['errors'].append(json.dumps(event)[:500])
+        elif kind == 'item.started':
+            _add_tool(out, positions, event.get('item') or {})
         elif kind == 'item.completed':
             item = event.get('item') or {}
+            _add_tool(out, positions, item)
             if item.get('type') == 'command_execution':
                 command = str(item.get('command', ''))
                 out['commands'].append(command)
@@ -257,6 +304,7 @@ def parse_stream(path):
 def child_traces(codex_home):
     """Commands and file edits from delegated sessions in a private CODEX_HOME."""
     commands, changes, sessions, found_reads = [], [], 0, {'skills': [], 'skill_reads': []}
+    calls = []
     for rollout in sorted(Path(codex_home).glob('sessions/**/*.jsonl')):
         lines = rollout.read_text(errors='replace').splitlines()
         if not lines or '"parent_thread_id"' not in lines[0]:
@@ -270,6 +318,9 @@ def child_traces(codex_home):
             item = payload.get('item') if isinstance(payload, dict) else None
             if payload.get('type') != 'item_completed' or not isinstance(item, dict):
                 continue
+            call = tool_call(item)
+            if call is not None:
+                calls.append(call)
             command = item.get('command')
             if command:
                 text = ' '.join(command) if isinstance(command, list) else str(command)
@@ -280,7 +331,8 @@ def child_traces(codex_home):
                 changes += [str(p) for p in found]
             elif isinstance(found, list):
                 changes += [str(c.get('path', '')) for c in found if isinstance(c, dict)]
-    return {'sessions': sessions, 'commands': commands, 'file_changes': changes, **found_reads}
+    return {'sessions': sessions, 'commands': commands, 'file_changes': changes, 'tools': calls,
+            **found_reads}
 
 
 ADAPTER = Codex()

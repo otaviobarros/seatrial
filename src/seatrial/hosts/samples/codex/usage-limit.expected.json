@@ -1,1 +1,2 @@
-{"commands": [], "final_message": null, "terminal": false, "delegations": 0, "status": "usage_limit"}
+{"commands": [], "final_message": null, "terminal": false, "delegations": 0, "status": "usage_limit",
+ "tools": []}

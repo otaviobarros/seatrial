@@ -294,6 +294,14 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(found['sessions'], 1)
         self.assertEqual(found['file_changes'], ['notes.md'])
         self.assertEqual(found['skills'], ['.agents/skills/review-change/SKILL.md'])
+        self.assertEqual(found['tools'], [
+            {'name': 'shell', 'input': {'command': 'bash -lc cat .agents/skills/review-change/SKILL.md'}},
+            {'name': 'apply_patch', 'input': {'paths': ['notes.md']}}])
+
+    def test_invalid_tool_entries_fail_the_evidence_contract(self):
+        evidence = codex.parse_stream('/missing')
+        evidence['tools'] = [{'name': 'Bash', 'input': 'make check'}]
+        self.assertIn('tools must hold {"name": str, "input": dict} entries', validate_evidence(evidence))
 
 
 if __name__ == '__main__':

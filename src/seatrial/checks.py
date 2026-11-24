@@ -161,6 +161,70 @@ def _names(entry, skill):
         or name == f'{skill}/SKILL.md'
 
 
+def _names_of(names):
+    return {names} if isinstance(names, str) else set(names)
+
+
+def _matches(call, matching):
+    if matching is None:
+        return True
+    if callable(matching):
+        return bool(matching(call['input']))
+    data = call['input']
+    return all(field in data and re.search(pattern, str(data[field])) for field, pattern in matching.items())
+
+
+UNRECORDED = 'evidence predates tool recording'
+
+
+def tool_calls(evidence, name, matching=None):
+    """(position, call) for each recorded call to `name`, a tool name or a collection of names.
+
+    `matching` is a dict of input field to regular expression, or a function of the input.
+    A call without the field does not match. Evidence saved before `tools` existed has no calls."""
+    names = _names_of(name)
+    return [(i, c) for i, c in enumerate(evidence.get('tools', []))
+            if c['name'] in names and _matches(c, matching)]
+
+
+def _describe(call):
+    return f"{call['name']} {json.dumps(call['input'], sort_keys=True)}"[:120]
+
+
+def tool_used(evidence, name, matching=None):
+    """The agent called the tool at least once, with input that fits `matching` when given."""
+    if 'tools' not in evidence:
+        return False, UNRECORDED
+    found = tool_calls(evidence, name, matching)
+    return bool(found), '; '.join(_describe(c) for _, c in found)[:300] or 'no matching call'
+
+
+def tool_order(evidence, first, then, first_matching=None, then_matching=None):
+    """Every `then` call comes after a `first` call. Passes when no `then` call was made.
+
+    A call that matches both sides does not count as after itself. On Codex, delegated
+    calls follow all of the parent's calls."""
+    if 'tools' not in evidence:
+        return False, UNRECORDED
+    before = tool_calls(evidence, first, first_matching)
+    after = tool_calls(evidence, then, then_matching)
+    if not after:
+        return True, 'no matching later call'
+    start = before[0][0] if before else None
+    early = [c for i, c in after if start is None or i <= start]
+    if not early:
+        return True, f'{len(after)} calls after call {start + 1}'
+    return False, 'before the first matching call: ' + '; '.join(_describe(c) for c in early)[:280]
+
+
+def steps_at_most(evidence, n):
+    """The agent made at most `n` tool calls, parent and delegated sessions together."""
+    if 'tools' not in evidence:
+        return False, UNRECORDED
+    count = len(evidence['tools'])
+    return count <= n, f'{count} tool calls'
+
+
 def report_matches(evidence, pattern):
     report = evidence['final_message'] or ''
     found = re.search(pattern, report, re.I)

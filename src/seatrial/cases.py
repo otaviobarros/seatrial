@@ -221,7 +221,7 @@ def affected(cases, paths, top):
     cfg = config.current()
     show = lambda p: os.path.relpath(p, top)
     skill_root = cfg.skills / 'skills' if cfg.layout == 'plugin' else cfg.skills
-    inputs = [cfg.cases, cfg.state]  # Evaluation inputs inside the skills folder are not mounted.
+    inputs = [cfg.cases, Path(cfg.state).resolve()]  # Evaluation inputs inside the skills folder are not mounted.
     every, reasons = [], {}
     def add(case, reason):
         reasons.setdefault(case.id, [])

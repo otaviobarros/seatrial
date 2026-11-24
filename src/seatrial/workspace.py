@@ -1,5 +1,6 @@
 """Skill mounts, file manifests, and the run state directory."""
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -21,29 +22,43 @@ def state():
     return config.current().state
 
 
-def git(*args, cwd=None):
+def git(*args, cwd=None, strip=True):
     cwd = cwd or config.current().root
-    return subprocess.run(['git', '-C', str(cwd), *args], check=True,
-                          capture_output=True, text=True).stdout.strip()
+    out = subprocess.run(['git', '-C', str(cwd), *args], check=True, capture_output=True, text=True).stdout
+    return out.strip() if strip else out
+
+
+def _skipped(path):
+    """True for runtime artifacts and files that mounts never copy."""
+    return bool(RUNTIME.intersection(path.parts)) or any(
+        fnmatch.fnmatch(part, pattern) for part in path.parts for pattern in IGNORE)
 
 
 def changed_files(ref):
     """(Git top level, absolute paths) of files that differ between ref and the working tree.
 
-    Untracked files count, except Python caches; a rename lists both paths.
+    Untracked files count, except caches and files that mounts skip; a rename lists both paths.
     """
-    root = config.current().root
+    cfg = config.current()
+    try:
+        top = Path(git('rev-parse', '--show-toplevel', cwd=cfg.root)).resolve()
+        tops = {Path(git('rev-parse', '--show-toplevel', cwd=f)).resolve() for f in (cfg.skills, cfg.cases)
+                if f.is_dir()}
+    except subprocess.CalledProcessError:
+        tops = None
+    if tops is None or tops - {top}:
+        raise ValueError(f'--changed needs {config.FILENAME}, the skills, and the cases in one Git repository')
     try:
         if ref.startswith('-'):
             raise subprocess.CalledProcessError(1, 'git')
-        top = Path(git('rev-parse', '--show-toplevel', cwd=root)).resolve()
-        commit = git('rev-parse', '--verify', '--quiet', ref + '^{commit}', cwd=root)
-        tracked = git('diff', '--name-only', '-z', '--no-renames', commit, '--', cwd=top)
-        untracked = git('ls-files', '-z', '--others', '--exclude-standard', '--full-name', cwd=top)
+        commit = git('rev-parse', '--verify', '--quiet', ref + '^{commit}', cwd=top)
+        # Keep -z output whole: a file name may start with a space.
+        tracked = git('diff', '--name-only', '-z', '--no-renames', commit, '--', cwd=top, strip=False)
+        untracked = git('ls-files', '-z', '--others', '--exclude-standard', '--full-name', cwd=top, strip=False)
     except subprocess.CalledProcessError:
-        raise ValueError(f'--changed {ref}: not a Git revision in {root}') from None
+        raise ValueError(f'--changed {ref}: not a Git revision in {top}') from None
     paths = (Path(p) for p in (tracked + '\0' + untracked).split('\0') if p)
-    return top, sorted({top / p for p in paths if not RUNTIME.intersection(p.parts) and p.suffix != '.pyc'})
+    return top, sorted({top / p for p in paths if not _skipped(p)})
 
 
 def source():

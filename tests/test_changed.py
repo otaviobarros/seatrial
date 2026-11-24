@@ -3,7 +3,7 @@ import json
 import unittest
 
 from seatrial import cli
-from seatrial.checks import git
+from seatrial.checks import git, init_repo as git_init
 from tests.support import ProjectCase
 from tests.test_cases import GOOD_TOML, write_case
 from tests.test_cli import call
@@ -128,6 +128,20 @@ class ChangedTests(ProjectCase, unittest.TestCase):
                 data = json.loads(out)
                 self.assertEqual(code, cli.EXIT['usage'])
                 self.assertIn('not a Git revision', data['error'])
+
+    def test_files_that_mounts_skip_select_nothing(self):
+        self.edit('plugin/skills/.DS_Store')
+        self.edit('plugin/skills/demo/.DS_Store')
+        code, data = self.changed()
+        self.assertEqual(code, cli.EXIT['no_cases'])
+
+    def test_skills_in_another_repository_are_a_usage_error(self):
+        other = self.root.parent / 'skills-repo'
+        git_init(other)
+        self.cfg.file.write_text(self.cfg.file.read_text().replace('path = "plugin"', f'path = "{other}"'))
+        code, out, _ = call('--config', str(self.cfg.file), 'list', '--json', '--changed', 'HEAD')
+        self.assertEqual(code, cli.EXIT['usage'])
+        self.assertIn('one Git repository', json.loads(out)['error'])
 
 
 if __name__ == '__main__':

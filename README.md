@@ -187,8 +187,10 @@ with the working tree, untracked files included, and selects:
   file in the skills folder outside any skill, or a `_` folder that cases of
   several skills share changed.
 
-`list --json` and `run --dry-run --json` give each case's reasons in
-`selected_because`. When no case is affected, seatrial prints `no affected cases`
+`seatrial.toml`, the skills, and the cases must share one Git repository. A
+skill change does not select the cases of other skills that invoke it; add
+`--skill` for those. `list --json` and `run --dry-run --json` give each case's
+reasons in `selected_because`. When no case is affected, seatrial prints `no affected cases`
 and exits 5.
 
 <details>

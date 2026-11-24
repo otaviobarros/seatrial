@@ -33,6 +33,7 @@ class Claude(HostAdapter):
     name = 'claude'
     default_model = 'claude-haiku-5-5'
     supports_no_plugin = True
+    supports_mcp = True
     pass_env = ('ANTHROPIC_*', 'CLAUDE_CODE_*', 'CLAUDE_CONFIG_DIR', 'AWS_*', 'CLOUD_ML_REGION',
                 'GOOGLE_APPLICATION_CREDENTIALS', 'VERTEX_REGION_*')
 

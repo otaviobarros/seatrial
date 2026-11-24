@@ -77,7 +77,7 @@ canned responses:
 | Field | Required | Meaning |
 |---|---|---|
 | `description` | No | The tool description the agent sees |
-| `input_schema` | No | A JSON Schema object; default `{"type": "object"}` |
+| `input_schema` | No | A JSON Schema object with `"type": "object"`; default `{"type": "object"}` |
 | `responses` | Yes | Canned responses; the first whose `match` fits the input answers the call |
 | `responses[].match` | No | Input field to regular expression, searched in the field's text; a missing field does not fit; no `match` fits every input |
 | `responses[].result` | Yes | A string becomes the text result; any other JSON value becomes JSON text, and an object is also the structured result |

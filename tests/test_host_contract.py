@@ -125,6 +125,7 @@ class HostContractTests(ProjectCase, unittest.TestCase):
             evidence = {'skills': ['demo-plugin:demo'], 'commands': []}
             for adapter in hosts.available().values():
                 self.assertTrue(adapter.supports_no_plugin, adapter.name)
+                self.assertTrue(adapter.supports_mcp, adapter.name)
                 self.assertEqual(runner.isolation_findings(adapter, t, evidence),
                                  {'foreign_skills': ['demo-plugin:demo']})
             with mock.patch.object(codex, 'homes', lambda: root / 'homes'), \
@@ -295,16 +296,21 @@ class CodexAdapterTests(unittest.TestCase):
                      {'type': 'event', 'payload': {'type': 'item_completed', 'item': {
                          'command': ['bash', '-lc', 'cat .agents/skills/review-change/SKILL.md']}}},
                      {'type': 'event', 'payload': {'type': 'item_completed', 'item': {
-                         'changes': {'notes.md': {}}}}}]
+                         'changes': {'notes.md': {}}}}},
+                     {'type': 'event', 'payload': {'type': 'item_completed', 'item': {
+                         'type': 'McpToolCall', 'server': 'tracker', 'tool': 'get_issue',
+                         'arguments': {'id': '7'}, 'status': 'failed'}}}]
             (sessions / 'child.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in child))
             (sessions / 'parent.jsonl').write_text('{"type":"session_meta","payload":{}}\n')
             found = codex.child_traces(tmp)
         self.assertEqual(found['sessions'], 1)
+        self.assertEqual(found['tool_errors'], 1)
         self.assertEqual(found['file_changes'], ['notes.md'])
         self.assertEqual(found['skills'], ['.agents/skills/review-change/SKILL.md'])
         self.assertEqual([call for _, call in found['tools']], [
             {'name': 'shell', 'input': {'command': "bash -lc 'cat .agents/skills/review-change/SKILL.md'"}},
-            {'name': 'apply_patch', 'input': {'paths': ['notes.md']}}])
+            {'name': 'apply_patch', 'input': {'paths': ['notes.md']}},
+            {'name': 'mcp__tracker__get_issue', 'input': {'id': '7'}}])
 
     def test_rollout_timestamps_interleave_delegated_calls(self):
         # Rollout shapes follow a recorded `codex exec` parent and child rollout pair.

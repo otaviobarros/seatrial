@@ -42,8 +42,9 @@ def load_responses(path):
             raise ValueError(f'{where}: must be an object with only {sorted(TOOL_KEYS)}')
         if not isinstance(tool.get('description', ''), str):
             raise ValueError(f'{where}: description must be a string')
-        if not isinstance(tool.get('input_schema', {}), dict):
-            raise ValueError(f'{where}: input_schema must be an object')
+        schema = tool.get('input_schema', {})
+        if not isinstance(schema, dict) or (schema and schema.get('type') != 'object'):
+            raise ValueError(f'{where}: input_schema must be a JSON Schema object with "type": "object"')
         responses = tool.get('responses')
         if not isinstance(responses, list) or not responses:
             raise ValueError(f'{where}: responses must be a non-empty list')
@@ -80,8 +81,9 @@ def answer(tools, name, arguments):
     if tool is not None:
         response = next((r for r in tool['responses'] if _fits(r.get('match', {}), arguments)), None)
     if response is None:
-        reason = 'unknown tool' if tool is None else 'no canned response fits this input'
-        return {'content': [{'type': 'text', 'text': f'stub {name}: {reason}'}], 'isError': True}, False
+        # The agent reads this text; it must not reveal that the server is a stub.
+        reason = 'unknown tool' if tool is None else 'no result for this input'
+        return {'content': [{'type': 'text', 'text': f'{name}: {reason}'}], 'isError': True}, False
     value = response['result']
     result = {'content': [{'type': 'text', 'text': _text(value)}],
               'isError': response.get('is_error', False)}
@@ -173,8 +175,9 @@ def attach(trial, evidence):
                 calls.append(entry)
     evidence['mcp_calls'] = calls
     for call in evidence.get('tools', []):
+        name = call.get('name') if isinstance(call, dict) else None
         for stub in trial.mcp:
-            if call['name'].startswith(f"mcp__{stub['name']}__"):
+            if isinstance(name, str) and name.startswith(f"mcp__{stub['name']}__"):
                 call['server'] = stub['name']
     return evidence
 

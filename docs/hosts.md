@@ -49,6 +49,8 @@ trial:
   trial `contaminated`.
 - Load only the stub MCP servers in `trial.mcp`. `stub_mcp.launch(trial)` returns
   `{name: (command, args)}` for each; allow their tools without approval prompts.
+  Set `supports_mcp = True` once `prepare` and `command` load them; otherwise a case
+  with `[[mcp]]` is rejected for the host.
   The runner reads the stubs' call logs after `collect`. Name stub tools
   `mcp__<server>__<tool>` in `tools`, as the built-in adapters do.
 - Build the environment from `HostAdapter.environment`. It passes only `PASS_ENV`

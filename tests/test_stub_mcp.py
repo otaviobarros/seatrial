@@ -82,8 +82,9 @@ class StubServerTests(unittest.TestCase):
                            call(2, 'get_issue', {}), call(3, 'delete_issue', {'id': '42'}))
         for ident in (1, 2, 3):
             self.assertTrue(replies[ident]['result']['isError'], ident)
-        self.assertIn('no canned response', replies[1]['result']['content'][0]['text'])
+        self.assertIn('no result for this input', replies[1]['result']['content'][0]['text'])
         self.assertIn('unknown tool', replies[3]['result']['content'][0]['text'])
+        self.assertNotIn('stub', json.dumps(replies).lower())
 
     def test_every_call_is_logged_in_order(self):
         converse(self.responses, self.log, call(1, 'get_issue', {'id': '42'}), call(2, 'delete_issue', {}))
@@ -103,6 +104,7 @@ class StubServerTests(unittest.TestCase):
             'maps tool names': [],
             'names use letters': {'bad name': {'responses': [{'result': 1}]}},
             'only': {'t': {'responses': [{'result': 1}], 'extra': 1}},
+            'type": "object"': {'t': {'input_schema': {'properties': {}}, 'responses': [{'result': 1}]}},
             'non-empty list': {'t': {'responses': []}},
             'needs result': {'t': {'responses': [{'match': {}}]}},
             'map input fields': {'t': {'responses': [{'match': {'id': 4}, 'result': 1}]}},
@@ -147,6 +149,12 @@ class AttachTests(unittest.TestCase):
             evidence = stub_mcp.attach(trial, {})
             self.assertNotIn('tools', evidence)  # Missing tools means not recorded, not none.
             self.assertEqual([c['tool'] for c in evidence['mcp_calls']], ['get_issue'])
+
+    def test_malformed_tool_entries_are_left_to_the_contract_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = stub_mcp.attach(self.trial(tmp, 'tracker'), {'tools': [{'input': {}}, 'x']})
+            self.assertEqual(evidence['tools'], [{'input': {}}, 'x'])
+            self.assertIn('tools must hold {"name": str, "input": dict} entries', validate_evidence(evidence))
 
     def test_trials_without_stubs_are_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:

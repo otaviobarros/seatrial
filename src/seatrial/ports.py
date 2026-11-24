@@ -149,6 +149,7 @@ class HostAdapter:
     usage_limit = USAGE_LIMIT
     auth_error = AUTH_ERROR
     supports_no_plugin = False  # True when prepare() and command() handle trial.plugin None.
+    supports_mcp = False  # True when prepare() and command() load the stub servers in trial.mcp.
 
     def version(self):
         raise NotImplementedError

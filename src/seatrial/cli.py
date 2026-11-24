@@ -350,6 +350,9 @@ def plan(parser, args, revisions):
                 parser.error(f'{host} supports efforts {adapter.efforts}')
             if NONE in revisions.values() and not adapter.supports_no_plugin:
                 parser.error(f'{host} does not support the NONE revision')
+            stubbed = [c.id for c in chosen if c.mcp and host in c.hosts]
+            if stubbed and not adapter.supports_mcp:
+                parser.error(f'{host} does not support stub MCP servers ([[mcp]] in {", ".join(stubbed)})')
     except ValueError as error:
         parser.error(str(error))
     models = parse_models(parser, args.model, hosts)
@@ -511,7 +514,7 @@ def command_schema(parser, args):
                                       'as mcp__<name>__<tool>',
                               'responses': 'path inside the case folder to a response file'}},
         'mcp_responses': {'<tool name>': {'description': 'str (optional)',
-                                          'input_schema': 'JSON Schema object (optional)',
+                                          'input_schema': 'JSON Schema object with "type": "object" (optional)',
                                           'responses': [{'match': '{input field: regular expression} (optional; '
                                                                   'first fitting response answers)',
                                                          'result': 'str, or any JSON value sent as JSON text',

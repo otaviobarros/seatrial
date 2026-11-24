@@ -37,6 +37,7 @@ class Codex(HostAdapter):
     name = 'codex'
     default_model = 'gpt-6-luna'
     supports_no_plugin = True
+    supports_mcp = True
     pass_env = ('OPENAI_*', 'AZURE_OPENAI_*')
 
     def version(self):

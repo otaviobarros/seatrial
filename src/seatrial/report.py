@@ -94,34 +94,44 @@ def correct(summary, method):
     The family is every assertion of every case and host with a decision whose margins
     allow p < alpha; an assertion that cannot reach significance, such as 10/10 against
     10/10, stays outside it and keeps its raw p-value. A new zero-tolerance failure does
-    not use p-values. Works on a stored summary too."""
+    not use p-values. A sequential run tests at its per-look threshold and judges each
+    case at the look where it stopped. Works on a stored summary too."""
+    sequential = summary.get('sequential') or {}
+    looks = summary.get('looks') or sequential.get('looks')
+    alpha = stats.look_threshold(looks) if looks else stats.ALPHA
     plain, tests = {}, []
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
             arms = result['arms']
             if set(arms) != {'base', 'head'}:
                 continue
-            decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], summary['n'])
-            plain[(case_id, host)] = decision
+            record = (sequential.get('cases') or {}).get(case_id, {}).get(host)
+            n = (record or {}).get('stopped_at') or summary['n']
+            decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], n,
+                                    alpha=alpha)
+            plain[(case_id, host)] = (decision, n, record)
             for assertion, p in sorted((decision.get('p_values') or {}).items()):
                 counts = (arms['base']['assertion_passes'][assertion], arms['base']['valid'],
                           arms['head']['assertion_passes'][assertion], arms['head']['valid'])
-                if stats.min_attainable_p(*counts) < stats.ALPHA:
+                if stats.min_attainable_p(*counts) < alpha:
                     tests.append((case_id, host, assertion, p))
-    adjusted = {key: dict(decision['p_values']) for key, decision in plain.items() if 'p_values' in decision}
+    adjusted = {key: dict(decision['p_values']) for key, (decision, _, _) in plain.items()
+                if 'p_values' in decision}
     for (case_id, host, assertion, _), value in zip(tests, stats.adjust([t[3] for t in tests], method)):
         adjusted[(case_id, host)][assertion] = value
-    for (case_id, host), decision in plain.items():
+    for (case_id, host), (decision, n, record) in plain.items():
         if method != 'none' and (case_id, host) in adjusted:
             entry = summary['cases'][case_id]
             arms = entry['hosts'][host]['arms']
-            corrected = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'],
-                                     summary['n'], adjusted=adjusted[(case_id, host)])
+            corrected = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], n,
+                                     adjusted=adjusted[(case_id, host)], alpha=alpha)
             if corrected['verdict'] != decision['verdict']:
                 corrected['verdict_uncorrected'] = decision['verdict']
             decision = corrected
+        if record:
+            decision['sequential'] = record
         summary['cases'][case_id]['hosts'][host]['decision'] = decision
-    summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': stats.ALPHA}
+    summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
     return summary
 
 
@@ -136,11 +146,28 @@ def correction_note(summary):
             f"{changed} changed (marked *)")
 
 
+def sequential_note(summary):
+    """One line on trials saved by a sequential run, or None for a fixed-n run."""
+    info = summary.get('sequential')
+    if not info:
+        return None
+    return (f"sequential: looks {', '.join(map(str, info['looks']))}, threshold {info['threshold']:.4g} per look; "
+            f"{info['trials_run']} of {info['trials_planned']} planned trials run")
+
+
+def stop_text(decision):
+    """Where a sequential case stopped, for example 'n=5 significant'."""
+    record = (decision or {}).get('sequential') or {}
+    return f"n={record['stopped_at']} {record['stop_reason']}" if record.get('stopped_at') else ''
+
+
 def verdict_text(decision, style=str):
     """The verdict, with * when the multiple-comparison correction changed it."""
     if not decision:
         return '-'
-    return style(decision['verdict']) + ('*' if 'verdict_uncorrected' in decision else '')
+    stopped = stop_text(decision)
+    return (style(decision['verdict']) + ('*' if 'verdict_uncorrected' in decision else '')
+            + (f' ({stopped})' if stopped else ''))
 
 
 def arm_label(summary, arm):
@@ -175,9 +202,9 @@ def markdown(summary):
                 if s.get('isolation_warnings'):
                     failures.append(f"- {case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                     'from outside the plugin or of unknown source, or named the project path')
-    note = correction_note(summary)
-    if note:
-        failures.append(f'- {note}')
+    for note in (correction_note(summary), sequential_note(summary)):
+        if note:
+            failures.append(f'- {note}')
     return '\n'.join(lines + ([''] + failures if failures else []))
 
 
@@ -206,9 +233,9 @@ def terminal(summary):
                                          'from outside the plugin or of unknown source, or named the project path'))
             if decision.get('reason'):
                 notes.append(ui.info(f"{case_id} {host}: {decision['reason']}"))
-    note = correction_note(summary)
-    if note:
-        notes.append(ui.info(note))
+    for note in (correction_note(summary), sequential_note(summary)):
+        if note:
+            notes.append(ui.info(note))
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD', 'Verdict'], rows)
     total = summary.get('cost_usd_total')
     footer = [ui.style(f'total cost USD {total:.2f}', 'dim')] if total is not None else []

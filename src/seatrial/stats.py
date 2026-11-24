@@ -97,12 +97,13 @@ def adjust(p_values, method):
     raise ValueError(f'unknown correction {method!r}; choose one of {", ".join(CORRECTIONS)}')
 
 
-def decide(assertions, primary, base, head, n, adjusted=None):
+def decide(assertions, primary, base, head, n, adjusted=None, alpha=ALPHA):
     """Compare two arms of one case on one host.
 
     base and head hold 'valid' (graded trials) and 'assertion_passes' ({id: count}).
     adjusted maps each assertion to a corrected p-value; when given, the Fisher
-    thresholds below use it in place of the raw p-value.
+    thresholds below use it in place of the raw p-value. alpha replaces 0.05, for
+    example with the per-look threshold of a sequential run.
     - regressed: a zero-tolerance assertion newly fails, or any assertion is
       significantly worse (Fisher p < 0.05).
     - improved: the primary assertion is significantly better and head has no
@@ -118,11 +119,11 @@ def decide(assertions, primary, base, head, n, adjusted=None):
     p = {a: fisher(bp[a], nb, hp[a], nh) for a in assertions}  # Full precision; round only for display.
     new_zero = [a for a, kind in assertions.items() if kind == 'zero' and hp[a] < nh and bp[a] == nb]
     gate = adjusted if adjusted is not None else p
-    worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and gate[a] < ALPHA]
+    worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and gate[a] < alpha]
     zero_fail_head = any(hp[a] < nh for a, kind in assertions.items() if kind == 'zero')
     if new_zero or worse:
         verdict = 'regressed'
-    elif hp[primary] / nh > bp[primary] / nb and gate[primary] < ALPHA and not zero_fail_head:
+    elif hp[primary] / nh > bp[primary] / nb and gate[primary] < alpha and not zero_fail_head:
         verdict = 'improved'
     elif not zero_fail_head and all(hp[a] / nh >= bp[a] / nb - 2 / n for a in assertions):
         verdict = 'non-inferior'
@@ -133,3 +134,41 @@ def decide(assertions, primary, base, head, n, adjusted=None):
     if adjusted is not None:
         result['adjusted_p_values'] = dict(adjusted)
     return result
+
+
+def look_threshold(looks, alpha=ALPHA):
+    """Bonferroni alpha spending: each look tests at alpha / number of looks."""
+    return alpha / len(looks)
+
+
+def sequential_step(assertions, primary, base, head, looks, index, alpha=ALPHA):
+    """Decide whether one case and host stops after look `index` of a sequential run.
+
+    Returns {n, p_values, threshold, outcome, reason}; outcome is 'stop' or 'continue',
+    and reason is zero_tolerance, significant, futility, or max_n when it stops.
+    Futility asks whether the remaining trials could still move a Fisher test past the
+    threshold; it does not wait for a later zero-tolerance failure."""
+    look, threshold, last = looks[index], look_threshold(looks, alpha), index == len(looks) - 1
+    step = {'n': look, 'p_values': {}, 'threshold': threshold, 'outcome': 'continue', 'reason': None}
+
+    def stop(reason):
+        return dict(step, outcome='stop', reason=reason)
+
+    minimum = max(1, ceil(0.8 * look))
+    if base['valid'] < minimum or head['valid'] < minimum:
+        return stop('max_n') if last else step
+    nb, nh = base['valid'], head['valid']
+    bp, hp = base['assertion_passes'], head['assertion_passes']
+    step['p_values'] = {a: fisher(bp[a], nb, hp[a], nh) for a in assertions}
+    if any(kind == 'zero' and hp[a] < nh and bp[a] == nb for a, kind in assertions.items()):
+        return stop('zero_tolerance')
+    if decide(assertions, primary, base, head, look, alpha=threshold)['verdict'] in ('regressed', 'improved'):
+        return stop('significant')
+    if last:
+        return stop('max_n')
+    more = looks[-1] - look
+    can_improve = fisher(bp[primary], nb + more, hp[primary] + more, nh + more) < threshold and \
+        (hp[primary] + more) / (nh + more) > bp[primary] / (nb + more)
+    can_regress = any(fisher(bp[a] + more, nb + more, hp[a], nh + more) < threshold and
+                      (bp[a] + more) / (nb + more) > hp[a] / (nh + more) for a in assertions)
+    return step if can_improve or can_regress else stop('futility')

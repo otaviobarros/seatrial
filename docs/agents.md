@@ -40,6 +40,12 @@ Other decisions keep raw `p_values`; with a method other than `none` they add
 verdict. A tool should read these fields only when they are present. The `regressed`
 list and exit code 4 use the corrected verdicts.
 
+A `compare --sequential` run adds a top-level `sequential` object (`looks`,
+`threshold`, `trials_planned`, `trials_run`, `trials_saved`) and, in each
+decision, `sequential` with every look's `p_values` and `outcome`, plus
+`stopped_at` and `stop_reason`. `--dry-run` counts the trials at most; the run
+usually takes fewer.
+
 ## Procedure
 
 1. Run `seatrial doctor --json`. On exit 3, report each check whose `level` is

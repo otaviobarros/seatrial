@@ -232,7 +232,9 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as schema:
             cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
         documented = json.loads(schema.getvalue())['summary_fields']
-        for path in documented:
+        for path, shape in documented.items():
+            if 'present for --sequential' in shape:
+                continue
             node = summary
             for part in path.replace('<id>', 'demo-001').replace('<host>', 'fake').split('.'):
                 self.assertIn(part, node, path)
@@ -246,6 +248,78 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         ok, text = self.cli('report', document['run_dir'], '--correction', 'none', '--json')
         self.assertEqual(json.loads(text)['summary']['cases']['demo-001']['hosts']['fake']['decision']['verdict'],
                          'regressed')
+
+    def sequential(self, host, *argv):
+        with mock.patch.object(hosts, 'get', lambda name: host):
+            ok, out = self.cli('compare', '--base', 'HEAD', '--case', 'demo-001', '--host', 'fake',
+                               '--sequential', *argv)
+        work = Path(out.split('run directory (local only): ')[1].strip())
+        summary = json.loads((work / 'summary.json').read_text())
+        records = [json.loads(line) for line in (work / 'records.jsonl').read_text().splitlines()]
+        return out, summary, summary['cases']['demo-001']['hosts']['fake']['decision'], records
+
+    def test_sequential_stops_at_the_first_look_on_a_new_zero_tolerance_failure(self):
+        class Strays(Fake):  # Head writes an extra file, which the preserved assertion forbids.
+            def command(self, trial):
+                script = AGENT + ("pathlib.Path('stray.txt').write_text('x')\n" if trial.plugin.name == 'p1' else '')
+                return [sys.executable, '-c', script, str(trial.trace), trial.prompt]
+
+        out, summary, decision, records = self.sequential(Strays(), '--looks', '5,10')
+        self.assertEqual(len(records), 10)
+        self.assertEqual(decision['verdict'], 'regressed')
+        self.assertEqual((decision['sequential']['stopped_at'], decision['sequential']['stop_reason']),
+                         (5, 'zero_tolerance'))
+        self.assertEqual(decision['sequential']['trials_saved'], 10)
+        self.assertEqual(summary['sequential']['trials_run'], 10)
+        self.assertEqual(summary['sequential']['trials_planned'], 20)
+        self.assertEqual(summary['looks'], [5, 10])
+        self.assertIn('regressed (n=5 zero_tolerance)', out)
+        self.assertIn('10 of 20 planned trials run', out)
+
+    def test_sequential_stops_a_large_effect_early_and_runs_a_close_case_to_the_end(self):
+        class BaseFails(Fake):
+            def command(self, trial):
+                prompt = trial.prompt if trial.plugin.name == 'p1' else 'fail ' + trial.prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        _, summary, decision, records = self.sequential(BaseFails(), '--looks', '5,10')
+        self.assertEqual(decision['verdict'], 'improved')
+        self.assertEqual(decision['sequential']['stop_reason'], 'significant')
+        self.assertEqual(len(records), 10)
+        self.assertEqual(summary['multiple_comparisons']['alpha'], 0.025)
+
+        class EveryThird(Fake):  # Each arm fails its trials 0, 3, 6, and 9: 2/3 at the first look.
+            def __init__(self):
+                self.counts = {}
+
+            def command(self, trial):
+                count = self.counts[trial.plugin.name] = self.counts.get(trial.plugin.name, -1) + 1
+                prompt = 'fail ' + trial.prompt if count % 3 == 0 else trial.prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        _, summary, decision, records = self.sequential(EveryThird(), '--looks', '3,10')
+        self.assertEqual(len(records), 20)
+        self.assertEqual([look['outcome'] for look in decision['sequential']['looks']], ['continue', 'stop'])
+        self.assertEqual(decision['sequential']['stop_reason'], 'max_n')
+        self.assertIn(decision['verdict'], ('non-inferior', 'inconclusive'))
+        with contextlib.redirect_stdout(io.StringIO()) as schema:
+            cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
+        for path in json.loads(schema.getvalue())['summary_fields']:
+            node = summary
+            for part in path.replace('<id>', 'demo-001').replace('<host>', 'fake').split('.'):
+                if part == 'adjusted_p_values' or part == 'verdict_uncorrected':
+                    break  # Present only with a correction.
+                self.assertIn(part, node, path)
+                node = node[part]
+
+    def test_sequential_options_are_validated(self):
+        for argv in (['--looks', '5,10'], ['--sequential', '--looks', '10,5'], ['--sequential', '--looks', '5,11'],
+                     ['--sequential', '--looks', 'five'], ['--sequential', '--looks', '5,10', '--n', '8']):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit):
+                self.cli('compare', '--base', 'HEAD', '--case', 'demo-001', '--dry-run', *argv)
+        ok, out = self.cli('compare', '--base', 'HEAD', '--case', 'demo-001', '--host', 'fake', '--dry-run',
+                           '--sequential', '--n', '10')
+        self.assertIn('20 trials at most', out)
 
     def test_run_without_the_skill_combines_with_holdout(self):
         toml = self.cfg.cases / 'demo/demo-002/case.toml'

@@ -135,6 +135,11 @@ def build_parser():
     pair = commands.add_parser('compare', help='Compare two skill revisions')
     pair.add_argument('--base', required=True, help='Revision before the change, for example main, or NONE for no skill')
     pair.add_argument('--head', default=WORKTREE, help='Revision after the change (default: WORKTREE)')
+    pair.add_argument('--sequential', action='store_true',
+                      help='Run trials in batches and stop each case once its verdict is clear')
+    pair.add_argument('--looks', default=None, metavar='N,N,...',
+                      help='Trials per revision at each check, increasing; the last is the maximum '
+                           '(default: every 5 trials up to --n)')
     add_run_options(pair)
     runs = commands.add_parser('runs', help='List retained run directories, newest first')
     runs.add_argument('--limit', type=int, default=20)
@@ -263,9 +268,32 @@ def resolve_options(parser, args):
     return values
 
 
+def parse_looks(parser, args, values):
+    """The sequential looks, or None for a fixed-n run. The last look becomes --n."""
+    if not getattr(args, 'sequential', False):
+        if getattr(args, 'looks', None):
+            parser.error('--looks needs --sequential')
+        return None
+    if args.looks:
+        try:
+            looks = [int(part) for part in args.looks.split(',')]
+        except ValueError:
+            parser.error(f'--looks {args.looks!r}: use increasing whole numbers such as 5,10')
+        if args.n is not None and looks[-1] != args.n:
+            parser.error(f'--looks ends at {looks[-1]} but --n is {args.n}; drop --n or make them match')
+    else:
+        looks = list(range(5, values['n'], 5)) + [values['n']]
+    cap = runner.limits()['max_n']
+    if any(b <= a for a, b in zip(looks, looks[1:])) or looks[0] < 1 or looks[-1] > cap:
+        parser.error(f'--looks must increase and stay between 1 and {cap} (limits in {config.FILENAME})')
+    values['n'] = looks[-1]
+    return looks
+
+
 def plan(parser, args, revisions):
     """Validate a run request and return (cases, hosts, models, jobs, values)."""
     values = resolve_options(parser, args)
+    values['looks'] = parse_looks(parser, args, values)
     for revision in revisions.values():
         try:
             workspace.check_revision(revision)
@@ -313,11 +341,13 @@ def command_trials(parser, args, revisions):
         lines = [f"{t['case']} {t['host']}:{t['model']} {t['arm']}={t['revision']} #{t['index']}"
                  + (' trigger=auto' if t['trigger'] == 'auto' else '') for t in trials]
         emit(args, {'dry_run': True, 'trials': trials, 'count': len(trials)},
-             '\n'.join(lines + [ui.info(f'{len(jobs)} trials; no native calls made')]))
+             '\n'.join(lines + [ui.info(f'{len(jobs)} trials' + (' at most' if values['looks'] else '') +
+                                         '; no native calls made')]))
         return EXIT['ok']
     options = {'n': values['n'], 'models': models, 'effort': args.effort, 'timeout': args.timeout,
                'jobs': values['jobs'], 'max_minutes': values['max_minutes'], 'max_cost_usd': args.max_cost_usd,
-               'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction}
+               'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction,
+               'looks': values['looks']}
     if not args.json:
         print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'))
     try:
@@ -444,7 +474,18 @@ def command_schema(parser, args):
         'corrections': {'none': 'raw Fisher p-values (default)',
                         'holm': 'Holm step-down; controls the family-wise error rate',
                         'bh': 'Benjamini-Hochberg; controls the false discovery rate'},
+        'stop_reasons': {'zero_tolerance': 'a zero-tolerance assertion newly failed',
+                         'significant': 'a Fisher test passed the per-look threshold',
+                         'futility': 'the remaining trials could not reach a significant result',
+                         'max_n': 'the last look was reached'},
         'summary_fields': {
+            'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, trials_planned: int, '
+                          'trials_run: int, trials_saved: int, cases: {id: {host: <decision.sequential>}}}; '
+                          'present for --sequential runs',
+            'cases.<id>.hosts.<host>.decision.sequential': '{looks: [{n: int, p_values: {assertion: float}, '
+                                                           'threshold: float, outcome: str}], stopped_at: int, '
+                                                           'stop_reason: str, trials_saved: int}; present for '
+                                                           '--sequential runs',
             'multiple_comparisons': '{method: str, family_size: int, alpha: float}; the family leaves out '
                                     'tests whose pass counts cannot reach p < alpha',
             'cases.<id>.hosts.<host>.decision.p_values': '{assertion: float}, raw Fisher p-values; absent when '

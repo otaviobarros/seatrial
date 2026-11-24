@@ -87,6 +87,7 @@ def add_run_options(parser):
     parser.add_argument('--fail-on-regression', action='store_true',
                         help=f'Exit {EXIT["regressed"]} when a comparison verdict is "regressed"')
     add_correction(parser)
+    add_format(parser)
     add_json(parser)
 
 
@@ -94,6 +95,15 @@ def add_correction(parser, default='none'):
     parser.add_argument('--correction', choices=stats.CORRECTIONS, default=default,
                         help='Adjust Fisher p-values across all cases and hosts: holm (family-wise) or bh '
                              '(false discovery rate); default ' + (default or 'as stored'))
+
+
+def add_format(parser):
+    parser.add_argument('--format', choices=report.FORMATS, default='table',
+                        help='Summary text: an aligned table, a Markdown table, or comment Markdown for a pull '
+                             'request or job summary')
+    parser.add_argument('--summary-file', metavar='PATH',
+                        help='Also append the comment Markdown to PATH, such as a CI job summary file; works with '
+                             'any --format and with --json')
 
 
 def add_json(parser):
@@ -148,7 +158,7 @@ def build_parser():
         sub = commands.add_parser(name, help=f'{name.capitalize()} a retained run directory')
         sub.add_argument('run_dir', nargs='?', default='latest', help='Run directory, or latest (default)')
         if name == 'report':
-            sub.add_argument('--format', choices=('table', 'markdown'), default='table')
+            add_format(sub)
         add_correction(sub, default=None)
         add_json(sub)
     hosts = commands.add_parser('hosts', help='List host adapters')
@@ -166,14 +176,21 @@ def emit(args, data, text):
 
 def progress(args):
     """The per-trial callback: JSON lines on stderr with --json, a progress bar otherwise."""
+    stream = chatter(args)
+
     def show(record, finished, scheduled):
         if args.json:
             keys = ('case_id', 'host', 'arm', 'trial_index', 'status', 'pass', 'wall_s', 'cost_usd')
             print(json.dumps({'event': 'trial', 'finished': finished, 'scheduled': scheduled,
                               **{k: record.get(k) for k in keys}}), file=sys.stderr, flush=True)
         else:
-            print(ui.trial_line(record, finished, scheduled), flush=True)
+            print(ui.trial_line(record, finished, scheduled), file=stream, flush=True)
     return show
+
+
+def chatter(args):
+    """Progress output stays off stdout when stdout carries Markdown to post."""
+    return sys.stdout if getattr(args, 'format', 'table') == 'table' else sys.stderr
 
 
 def selected(parser, args, holdout):
@@ -349,7 +366,7 @@ def command_trials(parser, args, revisions):
                'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction,
                'looks': values['looks']}
     if not args.json:
-        print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'))
+        print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'), file=chatter(args))
     try:
         meta, records, work = runner.execute(chosen, hosts, revisions, options, on_record=progress(args))
     except SystemExit as error:
@@ -364,12 +381,18 @@ def publish(args, meta, records, chosen, work, name='summary.json'):
     (work / name).write_text(json.dumps(summary, indent=2) + '\n')
     regressed = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
                  if (r.get('decision') or {}).get('verdict') == 'regressed']
+    underpowered = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
+                    if (r.get('interpretation') or {}).get('underpowered')]
+    fmt = getattr(args, 'format', 'table')
     if args.json:
         print(json.dumps({'run_dir': str(work), 'stopped_early': bool(meta.get('stopped_early')),
-                          'regressed': regressed, 'summary': summary}, indent=2, default=str))
+                          'regressed': regressed, 'underpowered': underpowered, 'summary': summary},
+                         indent=2, default=str))
     else:
-        print(report.terminal(summary))
-        print(f'\nrun directory (local only): {work}')
+        print(report.render(summary, fmt))
+        # Keep Markdown on stdout free of the local path, so it can be posted as is.
+        print(f'\nrun directory (local only): {work}', file=chatter(args))
+    append_summary(args, summary)
     if meta.get('stopped_early'):
         return EXIT['failed']
     if regressed and getattr(args, 'fail_on_regression', False):
@@ -413,9 +436,20 @@ def command_report(parser, args):
     summary = json.loads(path.read_text())
     if args.correction:
         summary = report.correct(summary, args.correction)
-    text = report.markdown(summary) if args.format == 'markdown' else report.terminal(summary)
-    emit(args, {'run_dir': str(work), 'summary': summary}, text)
+    emit(args, {'run_dir': str(work), 'summary': summary}, report.render(summary, args.format))
+    append_summary(args, summary)
     return EXIT['ok']
+
+
+def append_summary(args, summary):
+    """Append the comment Markdown to --summary-file; a write failure warns and keeps the run's result."""
+    path = getattr(args, 'summary_file', None)
+    if path:
+        try:
+            with open(path, 'a', encoding='utf-8') as handle:
+                handle.write(report.comment(summary) + '\n\n')
+        except OSError as error:
+            print(ui.warn(f'could not append to --summary-file: {error}'), file=sys.stderr)
 
 
 def command_runs(parser, args):
@@ -496,6 +530,24 @@ def command_schema(parser, args):
                                                                   'for a test outside the family',
             'cases.<id>.hosts.<host>.decision.verdict_uncorrected': 'str; present only when the correction '
                                                                     'changed the verdict'},
+        'evidence_levels': list(stats.EVIDENCE),
+        'interpretation_fields': {
+            'verdict': 'the final decision verdict, after any correction', 'evidence': 'one of '
+            'evidence_levels; strong is gate p < alpha / 5, significant is gate p < alpha, with '
+            'multiple_comparisons.alpha',
+            'deciding_assertion': 'str | None',
+            'deciding_p_value': 'float | None: the gate p-value, adjusted when a correction ran, else Fisher',
+            'primary': '{assertion, base, head, difference, p_value, intervals_overlap}; base and head are '
+                       '{passes, valid, rate, ci: [low, high], margin}',
+            'underpowered': 'bool: not significant, and the run had fewer trials than the observed change needs',
+            'trials_needed': 'int | None: trials per revision to detect the observed change with 80% power at '
+                             'alpha, on the primary assertion or, for inconclusive, on deciding_assertion',
+            'detectable_change': 'float | None: smallest change the run could detect, on the trials_needed '
+                                 'assertion',
+            'alpha': 'float: per-test threshold for trials_needed; multiple_comparisons.alpha (0.05, or the '
+                     'per-look threshold of a sequential run), divided by family_size under a correction',
+            'explanation': 'str', 'recommendation': 'str | None'},
+        'report_formats': list(report.FORMATS),
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',
                                              'collect', 'release', 'classify') if hasattr(HostAdapter, m)],
         'exit_codes': EXIT,

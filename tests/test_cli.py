@@ -207,6 +207,9 @@ class CommandTests(ProjectCase, unittest.TestCase):
         self.assertEqual(schema['exit_codes'], cli.EXIT)
         self.assertIn('final_message', schema['evidence_keys'])
         self.assertEqual(schema['evidence_keys']['tools'], 'list (optional)')
+        self.assertEqual(schema['report_formats'], ['table', 'markdown', 'comment'])
+        self.assertIn('not_significant', schema['evidence_levels'])
+        self.assertIn('trials_needed', schema['interpretation_fields'])
 
     def test_empty_project_lists_no_cases_and_runs_report_nothing(self):
         code, out, _ = self.run_cli('list', '--json')

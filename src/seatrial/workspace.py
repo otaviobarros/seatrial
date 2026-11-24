@@ -27,6 +27,25 @@ def git(*args, cwd=None):
                           capture_output=True, text=True).stdout.strip()
 
 
+def changed_files(ref):
+    """(Git top level, absolute paths) of files that differ between ref and the working tree.
+
+    Untracked files count, except Python caches; a rename lists both paths.
+    """
+    root = config.current().root
+    try:
+        if ref.startswith('-'):
+            raise subprocess.CalledProcessError(1, 'git')
+        top = Path(git('rev-parse', '--show-toplevel', cwd=root)).resolve()
+        commit = git('rev-parse', '--verify', '--quiet', ref + '^{commit}', cwd=root)
+        tracked = git('diff', '--name-only', '-z', '--no-renames', commit, '--', cwd=top)
+        untracked = git('ls-files', '-z', '--others', '--exclude-standard', '--full-name', cwd=top)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'--changed {ref}: not a Git revision in {root}') from None
+    paths = (Path(p) for p in (tracked + '\0' + untracked).split('\0') if p)
+    return top, sorted({top / p for p in paths if not RUNTIME.intersection(p.parts) and p.suffix != '.pyc'})
+
+
 def source():
     """(Git top level, skills path relative to it) for the active configuration."""
     skills = config.current().skills

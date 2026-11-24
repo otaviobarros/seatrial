@@ -171,11 +171,25 @@ is reserved: it cannot name a Git ref. Hosts that cannot run without a plugin
 reject it.
 
 Selectors combine and repeat: `--case ID`, `--skill NAME`, `--rule ID`,
-`--suite capability|regression`, `--host NAME`. Cases marked `holdout = true` run
+`--suite capability|regression`, `--host NAME`, `--changed REF`. Cases marked `holdout = true` run
 only with `--holdout`, so you can tune a skill on some cases and check it on
 others; see [held-out cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#held-out-cases).
 Cases marked `trigger = "auto"` test whether the agent loads the skill on its
 own; see [trigger modes](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#trigger-modes).
+
+`--changed REF` selects the cases that files changed since `REF` affect, so CI
+can run only the cases of the skills a pull request touches. It compares `REF`
+with the working tree, untracked files included, and selects:
+
+- the cases of a skill whose folder changed;
+- a case whose own folder or `shared` path changed;
+- every case when `seatrial.toml`, an `identity_files` or `python_path` file, a
+  file in the skills folder outside any skill, or a `_` folder that cases of
+  several skills share changed.
+
+`list --json` and `run --dry-run --json` give each case's reasons in
+`selected_because`. When no case is affected, seatrial prints `no affected cases`
+and exits 5.
 
 <details>
 <summary>Options, defaults, and limits</summary>

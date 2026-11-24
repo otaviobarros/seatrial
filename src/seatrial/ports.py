@@ -47,7 +47,9 @@ EVIDENCE_KEYS = {
 # Keys an adapter returns only when its trace shows them. Graders treat a missing key
 # as "not recorded", which differs from an empty list.
 OPTIONAL_EVIDENCE_KEYS = {
-    'tools': list,            # tool calls in call order, each {"name": str, "input": dict}
+    'tools': list,            # tool calls in call order, each {"name": str, "input": dict}; stub MCP
+                              # calls also carry "server": str
+    'mcp_calls': list,        # calls the case's stub MCP servers logged, in log order per server
 }
 
 
@@ -70,6 +72,9 @@ def validate_evidence(evidence):
             isinstance(t, dict) and isinstance(t.get('name'), str) and isinstance(t.get('input'), dict)
             for t in evidence['tools']):
         problems.append('tools must hold {"name": str, "input": dict} entries')
+    if isinstance(evidence.get('tools'), list) and not all(
+            isinstance(t.get('server', ''), str) for t in evidence['tools'] if isinstance(t, dict)):
+        problems.append('tools server must be a string')
     return problems
 
 
@@ -84,6 +89,7 @@ class Trial:
     effort: str
     timeout: int
     budget_usd: float | None = None   # per-trial spend cap for hosts that support one
+    mcp: list = field(default_factory=list)  # stub MCP servers: {"name": str, "responses": Path}
     state: dict = field(default_factory=dict)  # adapter-private values
 
     @property

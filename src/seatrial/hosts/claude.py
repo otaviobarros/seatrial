@@ -1,7 +1,8 @@
 """Claude Code adapter: `claude -p --output-format stream-json` with an inline plugin.
 
-Isolation: no setting sources, no MCP servers, no session persistence, a sandbox that
-denies network and reads of the evaluated project, and a fixed tool list. Scheduling tools
+Isolation: no setting sources, no MCP servers except the case's stubs, no session
+persistence, a sandbox that denies network and reads of the evaluated project, and a fixed
+tool list that adds only the stubs' tools. Scheduling tools
 (ScheduleWakeup, CronCreate, Monitor) are not offered, so a trial cannot schedule
 extra turns after its report. Background tasks are disabled: an auto-backgrounded
 shell command kept the CLI alive after its final result until the trial timed out. The plugin loads from a mounted copy with --plugin-dir;
@@ -19,7 +20,7 @@ import shutil
 import subprocess
 
 from seatrial.ports import HostAdapter, new_evidence
-from seatrial import config
+from seatrial import config, stub_mcp
 
 TOOLS = 'Read,Write,Edit,Glob,Grep,Skill,Agent,Bash'
 EDIT_TOOLS = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
@@ -46,10 +47,13 @@ class Claude(HostAdapter):
         return f'/{config.current().namespace}:{skill}'
 
     def prepare(self, trial):
-        (trial.directory / 'mcp.json').write_text('{"mcpServers":{}}\n')
+        servers = {name: {'type': 'stdio', 'command': command, 'args': args}
+                   for name, (command, args) in stub_mcp.launch(trial).items()}
+        (trial.directory / 'mcp.json').write_text(json.dumps({'mcpServers': servers}) + '\n')
         return trial.plugin
 
     def command(self, trial):
+        allowed = ','.join([TOOLS, *(f"mcp__{stub['name']}" for stub in trial.mcp)])
         settings = {'sandbox': {'enabled': True, 'allowUnsandboxedCommands': False,
                                 'network': {'allowedDomains': []},
                                 'filesystem': {'denyRead': [str(config.current().root)]}}}
@@ -57,7 +61,7 @@ class Claude(HostAdapter):
                    '--setting-sources', '', '--strict-mcp-config',
                    '--mcp-config', str(trial.directory / 'mcp.json'),
                    '--settings', json.dumps(settings), '--permission-mode', 'acceptEdits',
-                   '--permission-prompts', 'none', '--tools', TOOLS, '--allowedTools', TOOLS,
+                   '--permission-prompts', 'none', '--tools', TOOLS, '--allowedTools', allowed,
                    '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
                    '--model', trial.model, '--effort', trial.effort]
         if trial.budget_usd:

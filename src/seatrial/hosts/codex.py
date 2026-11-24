@@ -1,10 +1,11 @@
 """Codex CLI adapter: `codex exec --json` with a private CODEX_HOME and HOME.
 
 Isolation: each trial gets its own CODEX_HOME holding a copy of the login, and its
-own HOME, so user configuration and user-level skills (~/.agents) never load. The
-plugin is copied to `<project>/.agents`, where Codex discovers project skills; the
-NONE revision copies nothing. The
-sandbox writes only inside the project, including its `.git`; `.agents` stays read-only.
+own HOME, so user configuration and user-level skills (~/.agents) never load. The only
+MCP servers are the case's stubs: `--ignore-user-config` skips config.toml, so they come
+in as `-c mcp_servers.<name>` overrides. The plugin is copied to `<project>/.agents`,
+where Codex discovers project skills; the NONE revision copies nothing. The sandbox
+writes only inside the project, including its `.git`; `.agents` stays read-only.
 Delegated sessions do not appear in the parent's JSON stream; their rollouts in the
 private CODEX_HOME are read before it is deleted. The parent's rollout times the
 stream's calls, so delegated calls in `tools` appear where they completed.
@@ -19,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 
+from seatrial import stub_mcp
 from seatrial.ports import HostAdapter, new_evidence
 from seatrial.workspace import state
 
@@ -73,8 +75,19 @@ class Codex(HostAdapter):
                 '-c', 'sandbox_workspace_write.exclude_slash_tmp=true',
                 # Workspace-write keeps <project>/.git read-only; a trial must commit and merge.
                 '-c', 'sandbox_workspace_write.writable_roots=' + json.dumps([str(trial.project / '.git')]),
+                *self._stubs(trial),
                 '-C', str(trial.project), '--model', trial.model,
                 '-c', 'model_reasoning_effort=' + json.dumps(trial.effort), trial.prompt]
+
+    @staticmethod
+    def _stubs(trial):
+        flags = []
+        for name, (command, args) in stub_mcp.launch(trial).items():
+            flags += ['-c', f'mcp_servers.{name}.command=' + json.dumps(command),
+                      '-c', f'mcp_servers.{name}.args=' + json.dumps(args),
+                      # With approval_policy never, a tool that needs approval is refused.
+                      '-c', f'mcp_servers.{name}.default_tools_approval_mode="approve"']
+        return flags
 
     def environment(self, trial, base):
         env = super().environment(trial, base)

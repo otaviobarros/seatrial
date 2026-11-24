@@ -36,6 +36,73 @@ shared modules and fixtures. They are never discovered as cases.
 | `shared` | No | Paths to shared modules or fixture folders inside the case root |
 | `holdout` | No | `true` keeps the case out of tuning; see [held-out cases](#held-out-cases) |
 | `trigger` | No | `explicit` (default) or `auto`; see [trigger modes](#trigger-modes) |
+| `[[mcp]]` | No | A stub MCP server with `name` and `responses`; see [stub MCP servers](#stub-mcp-servers) |
+
+## Stub MCP servers
+
+A skill that reads from or writes to an issue tracker, a wiki, or a chat service
+through MCP needs those tools in the trial. Declare a stub server for each service:
+
+```toml
+[[mcp]]
+name = "tracker"
+responses = "tracker.json"
+```
+
+`name` uses lowercase letters and digits joined by single underscores. The agent
+sees each tool as `mcp__<name>__<tool>` on both hosts. `responses` is a path inside
+the case folder; a change to the file changes the case identity. A trial loads only
+the declared stubs: Claude keeps `--strict-mcp-config` and allows `mcp__<name>`,
+and Codex gets `-c mcp_servers.<name>` overrides with tool approval set to
+`approve`.
+
+The response file maps each tool name to its description, input schema, and
+canned responses:
+
+```json
+{
+  "get_issue": {
+    "description": "Read one issue by its id.",
+    "input_schema": {"type": "object", "properties": {"id": {"type": "string"}}},
+    "responses": [
+      {"match": {"id": "^42$"}, "result": {"id": "42", "title": "Login fails on Safari"}},
+      {"result": "No such issue.", "is_error": true}
+    ]
+  },
+  "add_comment": {"responses": [{"result": "Comment added."}]}
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `description` | No | The tool description the agent sees |
+| `input_schema` | No | A JSON Schema object; default `{"type": "object"}` |
+| `responses` | Yes | Canned responses; the first whose `match` fits the input answers the call |
+| `responses[].match` | No | Input field to regular expression, searched in the field's text; a missing field does not fit; no `match` fits every input |
+| `responses[].result` | Yes | A string becomes the text result; any other JSON value becomes JSON text, and an object is also the structured result |
+| `responses[].is_error` | No | `true` returns the result as a tool error |
+
+A call that no response fits, or a call to an undeclared tool, gets an error result.
+
+The stub logs every call to `<trial>/mcp/<name>.jsonl`. The runner copies the logs
+into evidence `mcp_calls` as `{"server", "tool", "input", "matched", "is_error"}`,
+and adds `"server": <name>` to the stub's calls in `tools`. The `tools` helpers
+work on stub calls:
+
+```python
+from seatrial import checks
+
+def grade(project, evidence):
+    return {
+        'read_issue': checks.tool_used(evidence, 'mcp__tracker__get_issue', {'id': '^42$'}),
+        'read_before_comment': checks.tool_order(evidence, 'mcp__tracker__get_issue',
+                                                 'mcp__tracker__add_comment'),
+    }
+```
+
+`mcp_calls` holds what reached the server, including unmatched calls
+(`"matched": false`), so a grader can fail a trial that wrote before approval or
+called a tool the fixture did not expect.
 
 ## Trigger modes
 
@@ -161,7 +228,8 @@ and `terminal`. The Claude and Codex adapters also return `tools`, from
 `OPTIONAL_EVIDENCE_KEYS`.
 
 `tools` lists every tool call in call order as `{"name": ..., "input": {...}}`,
-with delegated sessions' calls where they ran. Names come from the host: Claude
+with delegated sessions' calls where they ran. Calls to a
+[stub MCP server](#stub-mcp-servers) also carry `"server"`. Names come from the host: Claude
 reports `Bash`, `Read`, `Edit`, and `mcp__<server>__<tool>`; Codex reports
 `shell`, `apply_patch`, `web_search`, its collaboration tools such as `wait`, and
 `mcp__<server>__<tool>`.
@@ -171,6 +239,7 @@ is in neither. Its stream reports a spawn only as started, so check delegation
 with `delegated(evidence)`, not `spawn_agent`. Codex places a delegated call by
 the time it completed, from the session rollouts; without the parent's rollout,
 delegated calls follow the parent's calls.
+
 When evidence has no `tools`, as on runs recorded before it existed or on a host
 that cannot show tool calls, `tool_used`, `tool_order`, and `steps_at_most` fail
 with `tool calls not recorded`. Rerun old trials before grading them with these

@@ -3,8 +3,8 @@
 Each adapter needs recorded traces in `src/seatrial/hosts/samples/<host>/`: `<name>.jsonl`
 and `<name>.expected.json`, which lists evidence values and the expected status. Optional
 keys: `foreign_skills` and `unknown_skills` (provenance), `trial_project` (the project path),
-`trial_prompt` (the prompt the trial sent), and `trial_plugin` (the plugin path; null for a
-NONE trial).
+`trial_prompt` (the prompt the trial sent), `trial_plugin` (the plugin path; null for a
+NONE trial), and `trial_mcp_log` (stub MCP log entries the trial recorded).
 """
 import json
 import os
@@ -19,7 +19,7 @@ from unittest import mock
 
 from seatrial import hosts
 from seatrial.hosts import codex
-from seatrial import checks, runner
+from seatrial import checks, runner, stub_mcp
 from tests.support import ProjectCase
 from seatrial.ports import GIT_IDENTITY, HostAdapter, Trial, validate_evidence
 
@@ -54,10 +54,18 @@ class HostContractTests(ProjectCase, unittest.TestCase):
                 project = expected.pop('trial_project', '/project')
                 prompt = expected.pop('trial_prompt', 'Check the change.')
                 plugin = expected.pop('trial_plugin', '/plugin')
+                stub_log = expected.pop('trial_mcp_log', [])
                 with self.subTest(host=name, sample=sample.name), tempfile.TemporaryDirectory() as tmp:
                     t = trial(Path(tmp), prompt=prompt, project=project, plugin=plugin)
+                    t.mcp = [{'name': n, 'responses': Path('/responses.json')}
+                             for n in dict.fromkeys(e['server'] for e in stub_log)]
+                    for entry in stub_log:
+                        log = stub_mcp.log_path(t, entry['server'])
+                        log.parent.mkdir(exist_ok=True)
+                        with log.open('a') as out:
+                            out.write(json.dumps(entry) + '\n')
                     shutil.copy(sample, t.trace)
-                    evidence = adapter.collect(t)
+                    evidence = stub_mcp.attach(t, adapter.collect(t))
                     self.assertEqual(validate_evidence(evidence), [])
                     for key, value in expected.items():
                         self.assertEqual(evidence[key], value, key)

@@ -4,7 +4,7 @@ A case lives in `<cases>/<skill>/<case-id>/`, where `<cases>` is `[cases] path`
 in seatrial.toml:
 
   case.toml   metadata: id, version, skill, suite, rules, hosts, effort, primary, assertions,
-              holdout, trigger
+              holdout, trigger, and `[[mcp]]` stub servers (see stub_mcp.py)
   case.py     build(project) -> prompt and grade(project, evidence) -> {assertion: (passed, note)}
   fixture/    optional files that build() copies into the project
 
@@ -23,7 +23,7 @@ import re
 import sys
 import tomllib
 
-from seatrial import config
+from seatrial import config, stub_mcp
 from seatrial.workspace import manifest
 
 PACKAGE = Path(__file__).resolve().parent
@@ -34,7 +34,8 @@ ID = re.compile(r'^[a-z][a-z0-9-]*-\d{3}$')
 REQUIRED = ('id', 'version', 'skill', 'suite', 'summary', 'primary', 'assertions')
 TYPES = {'id': str, 'version': int, 'skill': str, 'suite': str, 'summary': str, 'primary': str,
          'assertions': dict, 'rules': list, 'hosts': list, 'effort': str, 'project': str,
-         'timeout': int, 'shared': list, 'holdout': bool, 'trigger': str}
+         'timeout': int, 'shared': list, 'holdout': bool, 'trigger': str, 'mcp': list}
+MCP_KEYS = {'name', 'responses'}
 
 
 def case_root():
@@ -65,6 +66,7 @@ class Case:
     shared: list = field(default_factory=list)
     holdout: bool = False
     trigger: str = 'explicit'
+    mcp: list = field(default_factory=list)
     module: object = None
 
     @property
@@ -106,10 +108,16 @@ class Case:
     def shared_paths(self):
         return [(self.path / s).resolve() for s in self.shared]
 
+    def stubs(self):
+        """The stub MCP servers for a trial: {"name": str, "responses": absolute Path}."""
+        return [{'name': s['name'], 'responses': (self.path / s['responses']).resolve()} for s in self.mcp]
+
     def identity(self):
         """Hash the grader code and fixture inputs that a case version stands for."""
         files = [self.path / 'case.toml', self.path / 'case.py',
-                 *(p for p in self.shared_paths() if p.is_file()), *_identity_files()]
+                 *(p for p in self.shared_paths() if p.is_file()),
+                 *(s['responses'] for s in self.stubs()), *([PACKAGE / 'stub_mcp.py'] if self.mcp else []),
+                 *_identity_files()]
         grader = hashlib.sha256(b''.join(f.read_bytes() for f in files)).hexdigest()
         fixtures = {}
         for directory in [self.fixture, *(p for p in self.shared_paths() if p.is_dir())]:
@@ -147,6 +155,10 @@ def type_problems(meta):
     for key in ('rules', 'hosts', 'shared'):
         if isinstance(meta.get(key), list) and not all(isinstance(v, str) for v in meta[key]):
             problems.append(f'{key} must list strings')
+    if isinstance(meta.get('mcp'), list) and not all(
+            isinstance(v, dict) and set(v) == MCP_KEYS and all(isinstance(x, str) for x in v.values())
+            for v in meta['mcp']):
+        problems.append('each [[mcp]] table must have exactly name and responses, as strings')
     if isinstance(meta.get('assertions'), dict) and not all(
             isinstance(v, str) for v in meta['assertions'].values()):
         problems.append('assertions values must be strings')
@@ -189,9 +201,30 @@ def parse(path, root=None):
     for shared in case.shared_paths():
         if not shared.exists() or root.resolve() not in shared.parents:
             problems.append(f'shared path {shared} must exist inside the case folder {root}')
+    problems += stub_problems(case)
     if problems:
         raise ValueError(f'{path}: ' + '; '.join(problems))
     return case
+
+
+def stub_problems(case):
+    """Problems with the case's `[[mcp]]` stub servers and their response files."""
+    problems, names = [], [s['name'] for s in case.mcp]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        problems.append(f'mcp name {name!r} is declared twice')
+    folder = case.path.resolve()
+    for declared, stub in zip(case.mcp, case.stubs()):
+        if not stub_mcp.SERVER_NAME.match(stub['name']):
+            problems.append(f'mcp name {stub["name"]!r} must be lowercase letters and digits, '
+                            'joined by single underscores')
+        if folder not in stub['responses'].parents:
+            problems.append(f'mcp responses {declared["responses"]!r} must be inside the case folder')
+            continue
+        try:
+            stub_mcp.load_responses(stub['responses'])
+        except ValueError as error:
+            problems.append(f'mcp {stub["name"]!r}: {error}')
+    return problems
 
 
 def discover(root=None):

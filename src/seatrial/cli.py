@@ -147,6 +147,11 @@ def build_parser():
     pair = commands.add_parser('compare', help='Compare two skill revisions')
     pair.add_argument('--base', required=True, help='Revision before the change, for example main, or NONE for no skill')
     pair.add_argument('--head', default=WORKTREE, help='Revision after the change (default: WORKTREE)')
+    pair.add_argument('--sequential', action='store_true',
+                      help='Run trials in batches and stop each case once its verdict is clear')
+    pair.add_argument('--looks', default=None, metavar='N,N,...',
+                      help='Trials per revision at each check, increasing; the last is the maximum '
+                           '(default: every 5 trials up to --n)')
     add_run_options(pair)
     runs = commands.add_parser('runs', help='List retained run directories, newest first')
     runs.add_argument('--limit', type=int, default=20)
@@ -297,9 +302,32 @@ def resolve_options(parser, args):
     return values
 
 
+def parse_looks(parser, args, values):
+    """The sequential looks, or None for a fixed-n run. The last look becomes --n."""
+    if not getattr(args, 'sequential', False):
+        if getattr(args, 'looks', None):
+            parser.error('--looks needs --sequential')
+        return None
+    if args.looks:
+        try:
+            looks = [int(part) for part in args.looks.split(',')]
+        except ValueError:
+            parser.error(f'--looks {args.looks!r}: use increasing whole numbers such as 5,10')
+        if args.n is not None and looks[-1] != args.n:
+            parser.error(f'--looks ends at {looks[-1]} but --n is {args.n}; drop --n or make them match')
+    else:
+        looks = list(range(5, values['n'], 5)) + [values['n']]
+    cap = runner.limits()['max_n']
+    if any(b <= a for a, b in zip(looks, looks[1:])) or looks[0] < 1 or looks[-1] > cap:
+        parser.error(f'--looks must increase and stay between 1 and {cap} (limits in {config.FILENAME})')
+    values['n'] = looks[-1]
+    return looks
+
+
 def plan(parser, args, revisions):
     """Validate a run request and return (cases, hosts, models, jobs, values)."""
     values = resolve_options(parser, args)
+    values['looks'] = parse_looks(parser, args, values)
     for revision in revisions.values():
         try:
             workspace.check_revision(revision)
@@ -350,13 +378,16 @@ def command_trials(parser, args, revisions):
         if args.because is not None:
             data['selected_because'] = {c.id: args.because[c.id] for c in chosen}
             lines = [ui.info(f"{c.id}: {'; '.join(args.because[c.id])}") for c in chosen] + lines
-        emit(args, data, '\n'.join(lines + [ui.info(f'{len(jobs)} trials; no native calls made')]))
+        emit(args, data, '\n'.join(lines + [ui.info(f'{len(jobs)} trials' + (' at most' if values['looks'] else '') +
+                                                      '; no native calls made')]))
         return EXIT['ok']
     options = {'n': values['n'], 'models': models, 'effort': args.effort, 'timeout': args.timeout,
                'jobs': values['jobs'], 'max_minutes': values['max_minutes'], 'max_cost_usd': args.max_cost_usd,
-               'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction}
+               'budget_usd': args.budget_usd, 'trigger': args.trigger, 'correction': args.correction,
+               'looks': values['looks']}
     if not args.json:
-        print(ui.banner('seatrial', f'{len(jobs)} trials on {", ".join(hosts)}'), file=chatter(args))
+        print(ui.banner('seatrial', f'{len(jobs)} trials' + (' at most' if values['looks'] else '') +
+                        f' on {", ".join(hosts)}'), file=chatter(args))
     try:
         meta, records, work = runner.execute(chosen, hosts, revisions, options, on_record=progress(args))
     except SystemExit as error:
@@ -498,7 +529,19 @@ def command_schema(parser, args):
         'corrections': {'none': 'raw Fisher p-values (default)',
                         'holm': 'Holm step-down; controls the family-wise error rate',
                         'bh': 'Benjamini-Hochberg; controls the false discovery rate'},
+        'stop_reasons': {'zero_tolerance': 'a zero-tolerance assertion newly failed',
+                         'significant': 'a Fisher test passed the per-look threshold',
+                         'futility': 'the remaining trials could not reach a significant result',
+                         'max_n': 'the last look was reached'},
         'summary_fields': {
+            'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, stop_family: int, '
+                          'trials_planned: int, trials_run: int, trials_saved: int, trials_skipped: int, '
+                          'cases: {id: {host: <decision.sequential>}}}; present for --sequential runs',
+            'cases.<id>.hosts.<host>.decision.sequential': '{looks: [{n: int, p_values: {assertion: float}, '
+                                                           'threshold: float, outcome: str}], '
+                                                           'stopped_at: int|null, stop_reason: str|null, '
+                                                           'trials_saved: int, superseded: bool}; present for '
+                                                           '--sequential runs',
             'multiple_comparisons': '{method: str, family_size: int, alpha: float}; the family leaves out '
                                     'tests whose pass counts cannot reach p < alpha',
             'cases.<id>.hosts.<host>.decision.p_values': '{assertion: float}, raw Fisher p-values; absent when '
@@ -511,7 +554,8 @@ def command_schema(parser, args):
         'evidence_levels': list(stats.EVIDENCE),
         'interpretation_fields': {
             'verdict': 'the final decision verdict, after any correction', 'evidence': 'one of '
-            'evidence_levels; strong is gate p < alpha / 5, significant is gate p < alpha',
+            'evidence_levels; strong is gate p < alpha / 5, significant is gate p < alpha, with '
+            'multiple_comparisons.alpha',
             'deciding_assertion': 'str | None',
             'deciding_p_value': 'float | None: the gate p-value, adjusted when a correction ran, else Fisher',
             'primary': '{assertion, base, head, difference, p_value, intervals_overlap}; base and head are '
@@ -521,8 +565,8 @@ def command_schema(parser, args):
                              'alpha, on the primary assertion or, for inconclusive, on deciding_assertion',
             'detectable_change': 'float | None: smallest change the run could detect, on the trials_needed '
                                  'assertion',
-            'alpha': 'float: per-test threshold for trials_needed; 0.05, or 0.05 / family_size under a '
-                     'correction',
+            'alpha': 'float: per-test threshold for trials_needed; multiple_comparisons.alpha (0.05, or the '
+                     'per-look threshold of a sequential run), divided by family_size under a correction',
             'explanation': 'str', 'recommendation': 'str | None'},
         'report_formats': list(report.FORMATS),
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',

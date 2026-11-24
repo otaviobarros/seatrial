@@ -75,14 +75,15 @@ def percent(r):
     return f"{text} ({r['ci'][0] * 100:.0f}–{r['ci'][1] * 100:.0f}%)" if r.get('ci') else text
 
 
-def interpret(assertions, primary, base, head, decision, alpha=ALPHA, test_alpha=None):
+def interpret(assertions, primary, base, head, decision, alpha=ALPHA, test_alpha=None, rerun_alpha=None):
     """Read a decide() verdict together with the primary pass rates and their 95% Wilson
     intervals, and say how many trials would settle a non-significant result.
 
     Advisory only: the verdict and its Fisher gate stay with decide(). Evidence uses the gate
     p-value: the adjusted one when a correction ran. test_alpha is the per-test threshold for
     trial counts, for example alpha divided by the correction family. Returns stable fields
-    for tools plus `explanation` and `recommendation` text rendered from them."""
+    for tools plus `explanation` and `recommendation` text rendered from them. rerun_alpha, for a
+    sequential run, sizes the recommended rerun as a fixed-n run at that threshold."""
     test_alpha = test_alpha or alpha
     nb, nh = base['valid'], head['valid']
     verdict = decision['verdict']
@@ -128,7 +129,7 @@ def interpret(assertions, primary, base, head, decision, alpha=ALPHA, test_alpha
         moved = (f"`{a}` fell from {percent(rate(base['assertion_passes'][a], nb))} in base to "
                  f"{percent(rate(head['assertion_passes'][a], nh))} in head" if verdict == 'regressed' else rates)
         result['explanation'] = (f'{moved}; {p_text(a)}: a change this large would happen by chance less '
-                                 f'than {(alpha / 5 if strong else alpha) * 100:g}% of the time if the '
+                                 f'than {(alpha / 5 if strong else alpha) * 100:.2g}% of the time if the '
                                  'revisions behaved the same.')
     elif blocking := [a for a, kind in assertions.items() if kind == 'zero' and head['assertion_passes'][a] < nh]:
         # Head fails a zero-tolerance assertion that base also failed: no regression, but no other verdict.
@@ -163,6 +164,12 @@ def interpret(assertions, primary, base, head, decision, alpha=ALPHA, test_alpha
         result['explanation'] += (f" Without the multiple-comparison correction the verdict would be "
                                   f"`{decision['verdict_uncorrected']}`.")
     threshold = f' at alpha {test_alpha:.3g}' if test_alpha != ALPHA else ''
+    rerun = ''
+    if result['underpowered'] and rerun_alpha:
+        # More looks shrink the per-look threshold, so a larger sequential run would stay underpowered.
+        needed = trials_needed(b['rate'], h['rate'], rerun_alpha)
+        threshold = f' at alpha {rerun_alpha:.3g}' if rerun_alpha != ALPHA else ''
+        rerun = ' in a fixed-n run without `--sequential`'
     if result['underpowered'] and needed > 1000:
         smallest = result['detectable_change']
         result['recommendation'] = (f'A {difference * 100:+.0f}-point change needs more than 1000 trials per '
@@ -171,7 +178,7 @@ def interpret(assertions, primary, base, head, decision, alpha=ALPHA, test_alpha
                                        f'{smallest * 100:.0f} points or more, in at least one direction.'
                                        if smallest else '.'))
     elif result['underpowered']:
-        result['recommendation'] = (f'Run about {needed} valid trials per revision (`--n {needed}` or more, '
+        result['recommendation'] = (f'Run about {needed} valid trials per revision{rerun} (`--n {needed}` or more, '
                                     'since invalid trials do not count; raise `[limits] max_n` first if it is '
                                     f'lower) to detect a {difference * 100:+.0f}-point change with 80% power{threshold}.')
     return result
@@ -253,12 +260,15 @@ def adjust(p_values, method):
     raise ValueError(f'unknown correction {method!r}; choose one of {", ".join(CORRECTIONS)}')
 
 
-def decide(assertions, primary, base, head, n, adjusted=None):
+def decide(assertions, primary, base, head, n, adjusted=None, alpha=ALPHA, margin_n=None):
     """Compare two arms of one case on one host.
 
     base and head hold 'valid' (graded trials) and 'assertion_passes' ({id: count}).
     adjusted maps each assertion to a corrected p-value; when given, the Fisher
-    thresholds below use it in place of the raw p-value.
+    thresholds below use it in place of the raw p-value. alpha replaces 0.05, for
+    example with the per-look threshold of a sequential run. margin_n sets the
+    non-inferiority margin when it differs from n, such as the planned n of a case
+    that stopped early.
     - regressed: a zero-tolerance assertion newly fails, or any assertion is
       significantly worse (Fisher p < 0.05).
     - improved: the primary assertion is significantly better and head has no
@@ -274,13 +284,13 @@ def decide(assertions, primary, base, head, n, adjusted=None):
     p = {a: fisher(bp[a], nb, hp[a], nh) for a in assertions}  # Full precision; round only for display.
     new_zero = [a for a, kind in assertions.items() if kind == 'zero' and hp[a] < nh and bp[a] == nb]
     gate = adjusted if adjusted is not None else p
-    worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and gate[a] < ALPHA]
+    worse = [a for a in assertions if bp[a] / nb > hp[a] / nh and gate[a] < alpha]
     zero_fail_head = any(hp[a] < nh for a, kind in assertions.items() if kind == 'zero')
     if new_zero or worse:
         verdict = 'regressed'
-    elif hp[primary] / nh > bp[primary] / nb and gate[primary] < ALPHA and not zero_fail_head:
+    elif hp[primary] / nh > bp[primary] / nb and gate[primary] < alpha and not zero_fail_head:
         verdict = 'improved'
-    elif not zero_fail_head and all(hp[a] / nh >= bp[a] / nb - 2 / n for a in assertions):
+    elif not zero_fail_head and all(hp[a] / nh >= bp[a] / nb - 2 / (margin_n or n) for a in assertions):
         verdict = 'non-inferior'
     else:
         verdict = 'inconclusive'
@@ -289,3 +299,46 @@ def decide(assertions, primary, base, head, n, adjusted=None):
     if adjusted is not None:
         result['adjusted_p_values'] = dict(adjusted)
     return result
+
+
+def look_threshold(looks, alpha=ALPHA):
+    """Bonferroni alpha spending: each look tests at alpha / number of looks."""
+    return alpha / len(looks)
+
+
+def sequential_step(assertions, primary, base, head, looks, index, alpha=ALPHA, family=1):
+    """Decide whether one case and host stops after look `index` of a sequential run.
+
+    Returns {n, p_values, threshold, outcome, reason}; outcome is 'stop' or 'continue',
+    and reason is zero_tolerance, significant, futility, or max_n when it stops.
+    `family` is the most tests a later correction can adjust across; the stop gate divides
+    the threshold by it, so a Holm or BH adjusted p-value still passes after a stop.
+    Futility asks whether the remaining trials could still move a Fisher test past the
+    undivided per-look threshold, the loosest one a correction can apply; it does not
+    wait for a later zero-tolerance failure."""
+    look, last = looks[index], index == len(looks) - 1
+    reachable = look_threshold(looks, alpha)
+    threshold = reachable / family
+    step = {'n': look, 'p_values': {}, 'threshold': threshold, 'outcome': 'continue', 'reason': None}
+
+    def stop(reason):
+        return dict(step, outcome='stop', reason=reason)
+
+    minimum = max(1, ceil(0.8 * look))
+    if base['valid'] < minimum or head['valid'] < minimum:
+        return stop('max_n') if last else step
+    nb, nh = base['valid'], head['valid']
+    bp, hp = base['assertion_passes'], head['assertion_passes']
+    step['p_values'] = {a: fisher(bp[a], nb, hp[a], nh) for a in assertions}
+    if any(kind == 'zero' and hp[a] < nh and bp[a] == nb for a, kind in assertions.items()):
+        return stop('zero_tolerance')
+    if decide(assertions, primary, base, head, look, alpha=threshold)['verdict'] in ('regressed', 'improved'):
+        return stop('significant')
+    if last:
+        return stop('max_n')
+    more = looks[-1] - look
+    can_improve = fisher(bp[primary], nb + more, hp[primary] + more, nh + more) < reachable and \
+        (hp[primary] + more) / (nh + more) > bp[primary] / (nb + more)
+    can_regress = any(fisher(bp[a] + more, nb + more, hp[a], nh + more) < reachable and
+                      (bp[a] + more) / (nb + more) > hp[a] / (nh + more) for a in assertions)
+    return step if can_improve or can_regress else stop('futility')

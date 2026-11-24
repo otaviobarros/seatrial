@@ -58,6 +58,18 @@ against 10/10 cannot, so it stays out. A verdict the correction changed shows
 `*`, keeps the raw verdict in `verdict_uncorrected`, and the interpretation is
 rebuilt from the corrected verdict.
 
+### Sequential trials
+
+With `--looks`, seatrial checks the verdict after each listed trial count and
+stops a case once it is decided. Each look spends an equal share of the 5%
+(Bonferroni), so the per-look threshold is 0.05 divided by the number of looks,
+and every verdict, evidence level, and trial estimate uses it in place of 0.05.
+Under a correction, the stop gate also divides by the number of assertions in
+the run. The non-inferiority margin keeps the planned n, so an early stop never
+widens it. Reports show where a case stopped, for example `regressed (n=6
+significant)`, and mark a stop a regrade or correction contradicts as
+`superseded`.
+
 ## Precision: Wilson score intervals
 
 For c passes in n trials, with rate p̂ = c / n and z = 1.96 for 95% confidence,
@@ -104,10 +116,11 @@ the run could have detected instead: about 59 points from a 70% base at 10 trial
 For `inconclusive`, the estimate sizes the assertion with the largest drop rather
 than the primary assertion.
 
-Under a correction, α is 0.05 divided by the family size, a Bonferroni bound
-that is conservative for Holm and Benjamini-Hochberg, and the interpretation
-records it in `alpha`. For 60% against 80% across a family of five tests, α is
-0.01 and the estimate rises from 82 to about 122 trials.
+A sequential run uses its per-look threshold as α. Under a correction, α is
+also divided by the family size, a Bonferroni bound that is conservative for
+Holm and Benjamini-Hochberg. The interpretation records α in `alpha`. For 60%
+against 80% across a family of five tests, α is 0.01 and the estimate rises
+from 82 to about 122 trials.
 
 A result is `underpowered` when the difference is not significant and the run had
 fewer trials than `trials_needed`. A `non-inferior` result with equal rates is not
@@ -126,7 +139,8 @@ trial count; a difference that small does not show the revisions are equivalent.
 | `not_significant` | p ≥ 0.05 | No detected effect; if `underpowered`, the run was too small to decide |
 | `insufficient_trials` | Too many invalid trials | Fix the invalid statuses, then run again |
 
-Under a correction, the p-value in this table is the adjusted one.
+Under a correction, the p-value in this table is the adjusted one. A sequential
+run replaces 0.05 with its per-look threshold and 0.01 with a fifth of it.
 
 Overlapping intervals and a non-significant p-value mean the run cannot tell the
 revisions apart. That is not evidence that they behave the same: at 10 trials only

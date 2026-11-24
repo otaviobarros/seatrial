@@ -210,6 +210,7 @@ and exits 5.
 | `--budget-usd` per-trial cap (Claude only) | none | none |
 | `--trigger explicit\|auto`; `auto` sends the request without the skill invocation | case `trigger`, `explicit` | none |
 | `--correction none\|holm\|bh`; adjusts Fisher p-values across the run | `none` | none |
+| `--sequential` with `--looks 5,10`; `compare` only | off; looks every 5 trials up to `--n` | last look at most `max_n` |
 
 </details>
 
@@ -279,6 +280,33 @@ p-values still count in the family. A verdict the correction changed shows
 it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
 method to a stored run without new trials. Cases whose two runs of the same
 revision often disagree need a stricter method, or more trials.
+
+### Stop early when the verdict is clear
+
+`compare --sequential --looks 5,10` runs trials in batches. After each look,
+it checks every case and host on all trials so far and stops the ones that are
+decided:
+
+| Stop reason | When |
+|---|---|
+| `zero_tolerance` | A zero-tolerance assertion newly fails |
+| `significant` | A Fisher test passes the per-look threshold |
+| `futility` | Even if the remaining trials all went one way, no Fisher test could pass the threshold |
+| `max_n` | The last look |
+
+Undecided cases get the next batch, so trials go where the result is still
+open. Each look tests at 0.05 divided by the number of looks (0.025 for
+`5,10`), which keeps the chance that a Fisher test gives a false result at or
+below 0.05 across all looks. A case that stops early is judged on its trials so far, but its
+non-inferiority margin stays at the planned `--n`. A `futility` stop gives up
+the trials in which a rare zero-tolerance failure might still have appeared;
+use a fixed `--n` for cases where that matters.
+
+`--correction` applies on top of the per-look threshold. With `holm` or `bh`,
+a case stops as `significant` only when its p-value passes the per-look
+threshold divided by the number of assertions in the run, so the corrected
+verdict keeps the stop. A budget, deadline, or stopping error ends the run
+without judging the unfinished look; those trials count as skipped, not saved.
 
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">

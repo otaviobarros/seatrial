@@ -53,17 +53,22 @@ def primary_text(s, primary):
     return stats.percent({'passes': s['assertion_passes'][primary], 'valid': s['valid'], 'ci': s.get('primary_ci')})
 
 
-EVIDENCE_TEXT = {'zero_tolerance': 'zero-tolerance rule', 'strong': 'strong evidence, p < 0.01',
-                 'significant': 'significant, p < 0.05', 'not_significant': 'not significant',
+EVIDENCE_TEXT = {'zero_tolerance': 'zero-tolerance rule', 'strong': 'strong evidence, p < {strong:.2g}',
+                 'significant': 'significant, p < {alpha:.2g}', 'not_significant': 'not significant',
                  'insufficient_trials': 'too few valid trials'}
 
 
-def reading(result):
+def gate_alpha(summary):
+    """The threshold the verdicts used: 0.05, or a sequential run's per-look threshold."""
+    return (summary.get('multiple_comparisons') or {}).get('alpha', stats.ALPHA)
+
+
+def reading(result, alpha=stats.ALPHA):
     """The interpretation as one line: verdict, evidence, explanation, and recommendation."""
     meaning = result.get('interpretation')
     if not meaning:
         return None
-    evidence = EVIDENCE_TEXT[meaning['evidence']]
+    evidence = EVIDENCE_TEXT[meaning['evidence']].format(strong=alpha / 5, alpha=alpha)
     if (result.get('decision') or {}).get('adjusted_p_values'):
         evidence = evidence.replace('p <', 'adjusted p <')
     parts = [f"{meaning['verdict']} ({evidence}).", meaning['explanation'],
@@ -72,12 +77,14 @@ def reading(result):
 
 
 def verdict_text(result):
-    """The verdict, with * when the multiple-comparison correction changed it and a note when
-    the run had too few trials to detect the observed change."""
+    """The verdict, with * when the multiple-comparison correction changed it, where a sequential
+    run stopped, and a note when the run had too few trials to detect the observed change."""
     decision = result.get('decision')
     if not decision:
         return '-'
     text = decision['verdict'] + ('*' if 'verdict_uncorrected' in decision else '')
+    stopped = stop_text(decision)
+    text += f' ({stopped})' if stopped else ''
     return f'{text}, underpowered' if (result.get('interpretation') or {}).get('underpowered') else text
 
 
@@ -133,43 +140,54 @@ def correct(summary, method):
     The family is every assertion of every case and host with a decision whose margins
     allow p < alpha; an assertion that cannot reach significance, such as 10/10 against
     10/10, stays outside it and keeps its raw p-value. A new zero-tolerance failure does
-    not use p-values. The interpretation is rebuilt from the final verdict. Works on a stored
-    summary too."""
+    not use p-values. A sequential run tests at its per-look threshold; the
+    non-inferiority margin keeps the planned n, so an early stop never widens it. The
+    interpretation is rebuilt from the final verdict. Works on a stored summary too."""
+    sequential = summary.get('sequential') or {}
+    looks = summary.get('looks') or sequential.get('looks')
+    alpha = stats.look_threshold(looks) if looks else stats.ALPHA
     plain, tests = {}, []
     for case_id, entry in summary['cases'].items():
         for host, result in entry['hosts'].items():
             arms = result['arms']
             if set(arms) != {'base', 'head'}:
                 continue
-            decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], summary['n'])
-            plain[(case_id, host)] = decision
+            record = (sequential.get('cases') or {}).get(case_id, {}).get(host)
+            n = (record or {}).get('stopped_at') or summary['n']
+            decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], n,
+                                    alpha=alpha, margin_n=summary['n'])
+            plain[(case_id, host)] = (decision, n, record)
             for assertion, p in sorted((decision.get('p_values') or {}).items()):
                 counts = (arms['base']['assertion_passes'][assertion], arms['base']['valid'],
                           arms['head']['assertion_passes'][assertion], arms['head']['valid'])
-                if stats.min_attainable_p(*counts) < stats.ALPHA:
+                if stats.min_attainable_p(*counts) < alpha:
                     tests.append((case_id, host, assertion, p))
-    adjusted = {key: dict(decision['p_values']) for key, decision in plain.items() if 'p_values' in decision}
+    adjusted = {key: dict(decision['p_values']) for key, (decision, _, _) in plain.items()
+                if 'p_values' in decision}
     for (case_id, host, assertion, _), value in zip(tests, stats.adjust([t[3] for t in tests], method)):
         adjusted[(case_id, host)][assertion] = value
-    for (case_id, host), decision in plain.items():
+    for (case_id, host), (decision, n, record) in plain.items():
         if method != 'none' and (case_id, host) in adjusted:
             entry = summary['cases'][case_id]
             arms = entry['hosts'][host]['arms']
-            corrected = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'],
-                                     summary['n'], adjusted=adjusted[(case_id, host)])
+            corrected = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], n,
+                                     adjusted=adjusted[(case_id, host)], alpha=alpha, margin_n=summary['n'])
             if corrected['verdict'] != decision['verdict']:
                 corrected['verdict_uncorrected'] = decision['verdict']
             decision = corrected
+        if record:
+            decision['sequential'] = dict(record, superseded=stop_superseded(record, decision))
         summary['cases'][case_id]['hosts'][host]['decision'] = decision
     # Trial counts use a Bonferroni bound on the per-test threshold: conservative for holm and bh.
-    test_alpha = stats.ALPHA / len(tests) if method != 'none' and tests else stats.ALPHA
+    test_alpha = alpha / len(tests) if method != 'none' and tests else alpha
+    rerun_alpha = test_alpha * stats.ALPHA / alpha if looks else None  # The same design without looks.
     for case_id, host in plain:
         entry = summary['cases'][case_id]
         result = entry['hosts'][host]
         result['interpretation'] = stats.interpret(entry['assertions'], entry['primary'], result['arms']['base'],
                                                    result['arms']['head'], result['decision'],
-                                                   alpha=stats.ALPHA, test_alpha=test_alpha)
-    summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': stats.ALPHA}
+                                                   alpha=alpha, test_alpha=test_alpha, rerun_alpha=rerun_alpha)
+    summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
     if 'correction' in summary:  # Run metadata; keep it in step when report or regrade changes the method.
         summary['correction'] = method
     return summary
@@ -186,6 +204,36 @@ def correction_note(summary):
                   if 'verdict_uncorrected' in (result.get('decision') or {}))
     return (f"verdicts corrected with {info['method']} across {info['family_size']} Fisher tests; "
             f"{changed} changed (marked *)")
+
+
+def sequential_note(summary):
+    """One line on trials saved by a sequential run, or None for a fixed-n run."""
+    info = summary.get('sequential')
+    if not info:
+        return None
+    family = info.get('stop_family') or 1
+    gate = f" (stops at {info['threshold'] / family:.4g} across {family} tests)" if family > 1 else ''
+    return (f"sequential: looks {', '.join(map(str, info['looks']))}, threshold {info['threshold']:.4g} per look"
+            f"{gate}; {info['trials_run']} of {info['trials_planned']} planned trials run, {info['trials_saved']} saved"
+            + (f", {info['trials_skipped']} skipped by a budget or stop" if info.get('trials_skipped') else ''))
+
+
+def stop_superseded(record, decision):
+    """True when a regrade or a correction gave a verdict the recorded stop reason contradicts."""
+    reason, significant = record.get('stop_reason'), decision['verdict'] in ('regressed', 'improved')
+    if reason == 'zero_tolerance':
+        return not decision.get('new_zero_tolerance_failures')
+    if reason in ('significant', 'futility'):
+        return significant != (reason == 'significant')
+    return False
+
+
+def stop_text(decision):
+    """Where a sequential case stopped, for example 'n=5 significant'."""
+    record = (decision or {}).get('sequential') or {}
+    if not record.get('stopped_at'):
+        return ''
+    return f"n={record['stopped_at']} {record['stop_reason']}" + (', superseded' if record.get('superseded') else '')
 
 
 def arm_label(summary, arm):
@@ -221,10 +269,10 @@ def markdown(summary, notes=True):
                 if s.get('isolation_warnings'):
                     failures.append(f"- {case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                     'from outside the plugin or of unknown source, or named the project path')
-            if reading(result):
-                readings.append(f'- {case_id} {host}: {reading(result)}')
-    note = correction_note(summary) if notes else None
-    return '\n'.join(lines + ([''] + failures if failures else []) + (['', f'{note[0].upper()}{note[1:]}.'] if note else [])
+            if reading(result, gate_alpha(summary)):
+                readings.append(f'- {case_id} {host}: {reading(result, gate_alpha(summary))}')
+    notes = [n for n in (correction_note(summary), sequential_note(summary)) if n] if notes else []
+    return '\n'.join(lines + ([''] + failures if failures else []) + [x for n in notes for x in ('', f'{n[0].upper()}{n[1:]}.')]
                      + (['', '**How to read the verdicts**', ''] + readings if readings else []))
 
 
@@ -258,9 +306,9 @@ def comment(summary):
             lines.append(f"- **{verdict_text(result)}** `{case_id}` on {host}" + (f': {detail}' if detail else ''))
     if summary.get('stopped_early'):
         lines[:0] = ['**The run stopped early: these are partial results.**', '']
-    note = correction_note(summary)
-    if note:
-        lines += ['', f'{note[0].upper()}{note[1:]}.']
+    for note in (correction_note(summary), sequential_note(summary)):
+        if note:
+            lines += ['', f'{note[0].upper()}{note[1:]}.']
     total = summary.get('cost_usd_total')
     if total is not None:
         lines += ['', f'Total host-reported cost: {total:.2f} USD']
@@ -300,11 +348,12 @@ def terminal(summary):
                 if s.get('isolation_warnings'):
                     notes.append(ui.warn(f"{case_id} {host} {label}: {s['isolation_warnings']} trials used skills "
                                          'from outside the plugin or of unknown source, or named the project path'))
-            if reading(result) or decision.get('reason'):  # Older summaries have only the reason.
-                notes.append(ui.info(f"{case_id} {host}: {reading(result) or decision['reason']}"))
-    note = correction_note(summary)
-    if note:
-        notes.append(ui.info(note))
+            text = reading(result, gate_alpha(summary)) or decision.get('reason')  # Older summaries lack a reading.
+            if text:
+                notes.append(ui.info(f'{case_id} {host}: {text}'))
+    for note in (correction_note(summary), sequential_note(summary)):
+        if note:
+            notes.append(ui.info(note))
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD', 'Verdict'], rows)
     total = summary.get('cost_usd_total')
     footer = [ui.style(f'total cost USD {total:.2f}', 'dim')] if total is not None else []

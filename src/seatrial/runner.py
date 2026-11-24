@@ -24,10 +24,10 @@ from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new
 STOP = ('usage_limit', 'auth_error')
 
 
-def schedule(cases, hosts, arms, n):
-    """Interleave arms so time and load effects reach both arms evenly."""
+def schedule(cases, hosts, arms, n, start=0):
+    """Interleave arms so time and load effects reach both arms evenly; trial indexes start..n-1."""
     jobs = []
-    for index in range(n):
+    for index in range(start, n):
         for position, case in enumerate(cases):
             for host in hosts:
                 if host not in case.hosts:
@@ -221,7 +221,8 @@ def execute(cases, hosts, revisions, options, on_record=None):
                'trigger_override': options.get('trigger'),
                'n': options['n'], 'jobs': options['jobs'], 'max_minutes': options['max_minutes'],
                'max_cost_usd': options['max_cost_usd'], 'budget_usd': options['budget_usd'],
-               'scheduled': len(jobs), 'correction': options.get('correction')}
+               'scheduled': len(jobs), 'correction': options.get('correction'),
+               'looks': options.get('looks')}
     (work / 'run.json').write_text(json.dumps(started, indent=2) + '\n')
     stop, records, lock = threading.Event(), [], threading.Lock()
     deadline = time.monotonic() + options['max_minutes'] * 60
@@ -255,21 +256,90 @@ def execute(cases, hosts, revisions, options, on_record=None):
             with out.open('a') as handle:
                 handle.write(json.dumps(record) + '\n')
             if on_record:
-                on_record(record, len(records), len(jobs))
+                on_record(record, len(records), submitted[0])
 
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=options['jobs'])
-    try:
-        futures = [pool.submit(worker, job) for job in jobs]  # Ctrl-C here is cancelled like one below.
-        for future in futures:
-            future.result()
-    except BaseException:
-        # Stop before joining: queued trials are cancelled, a running one finishes and keeps its record.
-        stop.set()
-        pool.shutdown(wait=True, cancel_futures=True)
-        raise
-    pool.shutdown(wait=True)
-    meta = {**started, 'finished': len(records), 'stopped_early': stop.is_set() or len(records) < len(jobs)}
+    submitted = [0]
+
+    def run_jobs(batch):
+        submitted[0] += len(batch)
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=options['jobs'])
+        try:
+            futures = [pool.submit(worker, job) for job in batch]  # Ctrl-C here is cancelled like one below.
+            for future in futures:
+                future.result()
+        except BaseException:
+            # Stop before joining: queued trials are cancelled, a running one finishes and keeps its record.
+            stop.set()
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
+
+    def save_looks(progress):  # An interrupted run keeps its stops for regrade.
+        (work / 'run.json').write_text(json.dumps({**started, 'sequential': progress}, indent=2) + '\n')
+
+    looks = options.get('looks')
+    sequential = None
+    if looks:
+        sequential = run_sequential(cases, hosts, arms, looks, records, run_jobs, stop,
+                                    options.get('correction') or 'none', on_look=save_looks)
+    else:
+        run_jobs(jobs)
+    meta = {**started, 'finished': len(records), 'stopped_early': stop.is_set() or len(records) < submitted[0]}
+    if sequential:
+        meta['sequential'] = sequential
+        meta['scheduled'] = submitted[0]  # The trials the looks asked for; the plan was only a maximum.
     return meta, records, work
+
+
+def run_sequential(cases, hosts, arms, looks, records, run_jobs, stop, correction='none', on_look=None):
+    """Run trials in batches up to each look; stop each case and host once its verdict is clear.
+
+    A look whose batch did not run in full (budget, deadline, or a stopping error) ends the
+    run without judging it; those cases keep stopped_at None. on_look(result) receives the
+    result so far after each judged look."""
+    from seatrial import stats
+    by_id = {case.id: case for case in cases}
+    pending = {(job['case'].id, job['host']) for job in schedule(cases, hosts, arms, looks[0])}
+    state = {pair: {'looks': [], 'stopped_at': None, 'stop_reason': None, 'trials_saved': 0} for pair in pending}
+    # Under a correction, gate stops as if every assertion of every pair were in the family.
+    family = 1 if correction == 'none' else sum(len(by_id[case_id].assertions) for case_id, _ in pending)
+    planned = len(schedule(cases, hosts, arms, looks[-1]))
+
+    def result():
+        cases_out = {}
+        for (case_id, host), entry in state.items():
+            cases_out.setdefault(case_id, {})[host] = entry
+        saved = sum(entry['trials_saved'] for entry in state.values())
+        return {'looks': list(looks), 'rule': 'bonferroni', 'alpha': stats.ALPHA,
+                'threshold': stats.look_threshold(looks), 'stop_family': family, 'trials_planned': planned,
+                'trials_run': len(records), 'trials_saved': saved,
+                'trials_skipped': max(0, planned - len(records) - saved), 'cases': cases_out}
+
+    start = 0
+    for index, look in enumerate(looks):
+        batch = [job for job in schedule(cases, hosts, arms, look, start) if (job['case'].id, job['host']) in pending]
+        before = len(records)
+        run_jobs(batch)
+        if stop.is_set() or len(records) - before < len(batch):
+            break
+        for case_id, host in sorted(pending):
+            case = by_id[case_id]
+            summaries = {arm: report.summarize_arm(case, [r for r in records if r['case_id'] == case_id
+                                                          and r['host'] == host and r['arm'] == arm])
+                         for arm in arms}
+            step = stats.sequential_step(case.assertions, case.primary, summaries['base'], summaries['head'],
+                                         looks, index, family=family)
+            entry = state[(case_id, host)]
+            entry['looks'].append({k: step[k] for k in ('n', 'p_values', 'threshold', 'outcome')})
+            if step['outcome'] == 'stop':
+                entry.update(stopped_at=look, stop_reason=step['reason'], trials_saved=(looks[-1] - look) * len(arms))
+                pending.discard((case_id, host))
+        if on_look:
+            on_look(result())
+        start = look
+        if not pending:
+            break
+    return result()
 
 
 def run_meta(work):

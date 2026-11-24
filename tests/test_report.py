@@ -76,6 +76,41 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(trivial['adjusted_p_values'], trivial['p_values'])
         self.assertEqual(data['multiple_comparisons']['family_size'], 1)
 
+    def test_a_contradicted_sequential_stop_is_marked_superseded(self):
+        data = c_summary([(9, 0), (9, 9)])
+        data['sequential'] = {'looks': [9], 'cases': {f'demo-{i:03d}': {'fake': {
+            'looks': [], 'stopped_at': 9, 'stop_reason': 'significant', 'trials_saved': 0}} for i in range(2)}}
+        data = report.correct(data, 'none')
+        kept, stale = (data['cases'][f'demo-{i:03d}']['hosts']['fake']['decision'] for i in range(2))
+        self.assertFalse(kept['sequential']['superseded'])
+        self.assertTrue(stale['sequential']['superseded'])
+        self.assertEqual(report.stop_text(stale), 'n=9 significant, superseded')
+
+    def test_sequential_runs_show_the_stop_and_the_per_look_threshold_in_every_format(self):
+        data = c_summary([(9, 0)])
+        data['sequential'] = {'looks': [3, 6, 9], 'threshold': 0.05 / 3, 'trials_planned': 18, 'trials_run': 6,
+                              'trials_saved': 12, 'cases': {'demo-000': {'fake': {
+                                  'looks': [], 'stopped_at': 9, 'stop_reason': 'significant', 'trials_saved': 0}}}}
+        data = report.correct(data, 'none')
+        result = data['cases']['demo-000']['hosts']['fake']
+        self.assertEqual(report.verdict_text(result), 'regressed (n=9 significant)')
+        self.assertIn('strong evidence, p < 0.0033', report.reading(result, report.gate_alpha(data)))
+        self.assertIn('less than 0.33% of the time', result['interpretation']['explanation'])
+        with mock.patch.object(report, 'markdown', return_value=''):
+            text = report.comment(dict(data, cost_usd_total=None))
+        self.assertIn('Sequential: looks 3, 6, 9', text)
+
+    def test_an_underpowered_sequential_run_recommends_a_fixed_n_rerun(self):
+        data = c_summary([(6, 7)])
+        data['sequential'] = {'looks': [3, 6, 9], 'threshold': 0.05 / 3, 'trials_planned': 18, 'trials_run': 18,
+                              'trials_saved': 0, 'cases': {}}
+        meaning = report.correct(data, 'none')['cases']['demo-000']['hosts']['fake']['interpretation']
+        self.assertTrue(meaning['underpowered'])
+        fixed = stats.trials_needed(6 / 9, 7 / 9)
+        self.assertGreater(meaning['trials_needed'], fixed)  # Sized at the per-look threshold.
+        self.assertIn(f'Run about {fixed} valid trials per revision in a fixed-n run without `--sequential`',
+                      meaning['recommendation'])
+
     def test_decisions_without_p_values_stay_outside_the_family(self):
         data = c_summary([(9, 9)])
         data['cases']['demo-000']['hosts']['fake']['arms']['head'] = c_arm(3, 3)

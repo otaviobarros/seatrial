@@ -139,14 +139,14 @@ class AttachTests(unittest.TestCase):
             self.assertEqual([t.get('server') for t in evidence['tools']], [None, 'tracker', None])
             self.assertEqual(evidence['mcp_calls'], [entry])  # The wiki stub was never started.
 
-    def test_logged_calls_become_tools_when_the_host_records_none(self):
+    def test_logged_calls_do_not_stand_in_for_missing_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
             trial = self.trial(tmp, 'tracker')
             self.write_log(trial, 'tracker', {'server': 'tracker', 'tool': 'get_issue', 'input': {'id': '1'},
                                               'matched': True, 'is_error': False})
             evidence = stub_mcp.attach(trial, {})
-            self.assertEqual(evidence['tools'], [{'name': 'mcp__tracker__get_issue', 'input': {'id': '1'},
-                                                  'server': 'tracker'}])
+            self.assertNotIn('tools', evidence)  # Missing tools means not recorded, not none.
+            self.assertEqual([c['tool'] for c in evidence['mcp_calls']], ['get_issue'])
 
     def test_trials_without_stubs_are_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:

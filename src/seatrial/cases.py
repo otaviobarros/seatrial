@@ -215,8 +215,8 @@ def stub_problems(case):
     folder = case.path.resolve()
     for declared, stub in zip(case.mcp, case.stubs()):
         if not stub_mcp.SERVER_NAME.match(stub['name']):
-            problems.append(f'mcp name {stub["name"]!r} must be lowercase letters and digits, '
-                            'joined by single underscores')
+            problems.append(f'mcp name {stub["name"]!r} must start with a lowercase letter and use '
+                            'lowercase letters and digits joined by single underscores')
         if folder not in stub['responses'].parents:
             problems.append(f'mcp responses {declared["responses"]!r} must be inside the case folder')
             continue

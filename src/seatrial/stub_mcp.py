@@ -156,8 +156,8 @@ def launch(trial):
 def attach(trial, evidence):
     """Copy stub call logs into evidence `mcp_calls` and mark the stubs' calls in `tools`.
 
-    A trace call named `mcp__<server>__<tool>` gets `"server": <server>`. An adapter that
-    records no `tools` gets the logged calls as its `tools`, in log order per server."""
+    A trace call named `mcp__<server>__<tool>` gets `"server": <server>`. Evidence without
+    `tools` stays without it: the stub log cannot show the host's other calls."""
     if not trial.mcp:
         return evidence
     calls = []
@@ -172,11 +172,7 @@ def attach(trial, evidence):
             if isinstance(entry, dict) and isinstance(entry.get('input'), dict):
                 calls.append(entry)
     evidence['mcp_calls'] = calls
-    if 'tools' not in evidence:
-        evidence['tools'] = [{'name': f"mcp__{c['server']}__{c['tool']}", 'input': c['input'],
-                              'server': c['server']} for c in calls]
-        return evidence
-    for call in evidence['tools']:
+    for call in evidence.get('tools', []):
         for stub in trial.mcp:
             if call['name'].startswith(f"mcp__{stub['name']}__"):
                 call['server'] = stub['name']

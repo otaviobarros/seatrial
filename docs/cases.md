@@ -49,7 +49,8 @@ name = "tracker"
 responses = "tracker.json"
 ```
 
-`name` uses lowercase letters and digits joined by single underscores. The agent
+`name` starts with a lowercase letter and uses lowercase letters and digits joined by
+single underscores. The agent
 sees each tool as `mcp__<name>__<tool>` on both hosts. `responses` is a path inside
 the case folder; a change to the file changes the case identity. A trial loads only
 the declared stubs: Claude keeps `--strict-mcp-config` and allows `mcp__<name>`,

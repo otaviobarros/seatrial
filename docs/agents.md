@@ -60,7 +60,8 @@ platform recipes.
 `summary.multiple_comparisons` names the correction (`method`), the number of
 Fisher tests it covered (`family_size`), and `alpha`. The family leaves out
 tests whose pass counts cannot reach p < `alpha`. A decision with a `reason`,
-such as a new zero-tolerance failure or too few valid trials, has no p-values.
+such as too few valid trials, has no p-values. A new zero-tolerance failure
+stays `regressed` under every method and keeps its p-values in the family.
 Other decisions keep raw `p_values`; with a method other than `none` they add
 `adjusted_p_values`, and `verdict_uncorrected` when the correction changed the
 verdict. A tool should read these fields only when they are present. The `regressed`

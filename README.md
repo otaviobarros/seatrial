@@ -128,7 +128,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
 | `runs` | List retained run directories, newest first |
 | `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method |
-| `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls |
+| `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls; `--correction` to change the run's method |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
 | `interactive` | Menu-driven mode; also the default with no arguments on a terminal |
@@ -252,9 +252,11 @@ Fisher tests before the verdict rules apply:
 | `bh` | The share of false verdicts among the significant ones | Many cases, screening for where to look |
 
 The family leaves out tests that cannot reach p < 0.05 with their pass counts,
-such as 10/10 against 10/10; they keep their raw p-value. Zero-tolerance
-failures and decisions with too few valid trials have no p-values, stay outside
-the family, and keep their verdict under every method. A verdict the correction changed shows `*`, and `summary.json` keeps
+such as 10/10 against 10/10; they keep their raw p-value. Decisions with too
+few valid trials have no p-values and stay outside the family. A new
+zero-tolerance failure stays `regressed` under every method, though its
+p-values still count in the family. A verdict the correction changed shows
+`*`, and `summary.json` keeps
 it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
 method to a stored run without new trials. Cases whose two runs of the same
 revision often disagree need a stricter method, or more trials.

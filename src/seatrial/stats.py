@@ -104,7 +104,8 @@ def interpret(assertions, primary, base, head, decision, alpha=ALPHA, test_alpha
 
     def p_text(a):
         raw = decision['p_values'][a]
-        return f'Fisher p = {raw:.3f}' + (f', adjusted p = {adjusted[a]:.3f}' if a in adjusted else '')
+        changed = a in adjusted and adjusted[a] != raw
+        return f'Fisher p = {raw:.3f}' + (f', adjusted p = {adjusted[a]:.3f}' if changed else '')
 
     p = gate(primary)
     n = min(nb, nh)
@@ -194,9 +195,11 @@ def min_attainable_p(a, n1, b, n2):
     """The smallest Fisher p-value any table with these margins can reach.
 
     A test whose minimum is at or above alpha can never be significant; leaving it
-    out of a correction family keeps the correction from over-penalizing (Tarone)."""
+    out of a correction family keeps the correction from over-penalizing (Tarone).
+    The hypergeometric is unimodal, so the minimum sits at one of the two extreme tables."""
     k = a + b
-    return min(fisher(x, n1, k - x, n2) for x in range(max(0, k - n2), min(n1, k) + 1))
+    low, high = max(0, k - n2), min(n1, k)
+    return min(fisher(low, n1, k - low, n2), fisher(high, n1, k - high, n2))
 
 
 def mann_whitney(base, head):

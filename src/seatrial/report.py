@@ -170,13 +170,17 @@ def correct(summary, method):
                                                    result['arms']['head'], result['decision'],
                                                    alpha=stats.ALPHA, test_alpha=test_alpha)
     summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': stats.ALPHA}
+    if 'correction' in summary:  # Run metadata; keep it in step when report or regrade changes the method.
+        summary['correction'] = method
     return summary
 
 
 def correction_note(summary):
     """One line naming the correction, or None when verdicts use raw p-values."""
     info = summary.get('multiple_comparisons') or {}
-    if info.get('method', 'none') == 'none':
+    compared = any(result.get('decision') for entry in summary['cases'].values()
+                   for result in entry['hosts'].values())
+    if info.get('method', 'none') == 'none' or not compared:  # A single-revision run has no verdicts.
         return None
     changed = sum(1 for entry in summary['cases'].values() for result in entry['hosts'].values()
                   if 'verdict_uncorrected' in (result.get('decision') or {}))
@@ -190,7 +194,8 @@ def arm_label(summary, arm):
     return 'none' if revision.get('name') == NONE else arm
 
 
-def markdown(summary):
+def markdown(summary, notes=True):
+    """The summary as a Markdown table; notes=False leaves out run notes a caller prints itself."""
     lines = ['| Case | Host | Arm | Valid | Primary pass (95% CI) | All pass | pass^k | Mean wall s | Lines added median | Cost USD | Verdict |',
              '|---|---|---|---|---|---|---|---|---|---|---|']
     for case_id, entry in summary['cases'].items():
@@ -218,10 +223,8 @@ def markdown(summary):
                                     'from outside the plugin or of unknown source, or named the project path')
             if reading(result):
                 readings.append(f'- {case_id} {host}: {reading(result)}')
-    note = correction_note(summary)
-    if note:
-        failures.append(f'- {note}')
-    return '\n'.join(lines + ([''] + failures if failures else [])
+    note = correction_note(summary) if notes else None
+    return '\n'.join(lines + ([''] + failures if failures else []) + (['', f'{note[0].upper()}{note[1:]}.'] if note else [])
                      + (['', '**How to read the verdicts**', ''] + readings if readings else []))
 
 
@@ -261,7 +264,7 @@ def comment(summary):
     total = summary.get('cost_usd_total')
     if total is not None:
         lines += ['', f'Total host-reported cost: {total:.2f} USD']
-    full = markdown(summary)
+    full = markdown(summary, notes=False)  # The headline already carries the notes.
     if len(full) > COMMENT_DETAILS_LIMIT:
         full = ('The full results are too long for one comment. Read them with `seatrial report --format '
                 'markdown`, or in `summary.json`.')

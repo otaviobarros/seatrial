@@ -258,10 +258,16 @@ decided:
 Undecided cases get the next batch, so trials go where the result is still
 open. Each look tests at 0.05 divided by the number of looks (0.025 for
 `5,10`), which keeps the chance of a false verdict at or below 0.05 across all
-looks. A case judged at an earlier look keeps that look's trial count as its
-`n`. A `futility` stop gives up the trials in which a rare zero-tolerance
-failure might still have appeared; use a fixed `--n` for cases where that
-matters. `--correction` applies on top of the per-look threshold.
+looks. A case that stops early is judged on its trials so far, but its
+non-inferiority margin stays at the planned `--n`. A `futility` stop gives up
+the trials in which a rare zero-tolerance failure might still have appeared;
+use a fixed `--n` for cases where that matters.
+
+`--correction` applies on top of the per-look threshold. With `holm` or `bh`,
+a case stops as `significant` only when its p-value passes the per-look
+threshold divided by the number of assertions in the run, so the corrected
+verdict keeps the stop. A budget, deadline, or stopping error ends the run
+without judging the unfinished look; those trials count as skipped, not saved.
 
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">

@@ -40,11 +40,15 @@ Other decisions keep raw `p_values`; with a method other than `none` they add
 verdict. A tool should read these fields only when they are present. The `regressed`
 list and exit code 4 use the corrected verdicts.
 
-A `compare --sequential` run adds a top-level `sequential` object (`looks`,
-`threshold`, `trials_planned`, `trials_run`, `trials_saved`) and, in each
-decision, `sequential` with every look's `p_values` and `outcome`, plus
-`stopped_at` and `stop_reason`. `--dry-run` counts the trials at most; the run
-usually takes fewer.
+A `compare --sequential` run adds a top-level `sequential` object and, in each
+decision, a `sequential` record with every look's `p_values` and `outcome`,
+`stopped_at`, `stop_reason`, and `trials_saved`. `stopped_at` is null when a
+budget or deadline ended the run first. `superseded` is true when a regrade or
+a later correction gave a verdict the stop reason contradicts. `trials_saved`
+counts trials the stop rule skipped; `trials_skipped` counts trials a budget,
+deadline, or stopping error skipped. `seatrial schema --json` lists every key
+under `summary_fields`. `--dry-run` counts the trials at most; the run usually
+takes fewer.
 
 ## Procedure
 

@@ -276,6 +276,14 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertIn('regressed (n=5 zero_tolerance)', out)
         self.assertIn('10 of 20 planned trials run', out)
 
+    def test_sequential_counts_unrun_trials_as_skipped_not_saved(self):
+        chosen = [cases.discover()['demo-001']]
+        result = runner.run_sequential(chosen, ['fake'], ['base', 'head'], [5, 10], [], lambda batch: None,
+                                       threading.Event())  # A deadline that skips every trial.
+        self.assertEqual((result['trials_saved'], result['trials_skipped']), (0, 20))
+        self.assertEqual(result['cases']['demo-001']['fake'],
+                         {'looks': [], 'stopped_at': None, 'stop_reason': None, 'trials_saved': 0})
+
     def test_sequential_stops_a_large_effect_early_and_runs_a_close_case_to_the_end(self):
         class BaseFails(Fake):
             def command(self, trial):

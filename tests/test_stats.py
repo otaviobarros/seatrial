@@ -94,17 +94,24 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(corrected['p_values'], raw['p_values'])
         self.assertEqual(corrected['adjusted_p_values'], {'behavior': 0.065, 'preserved': 1.0})
 
+    def test_margin_n_keeps_the_planned_non_inferiority_margin(self):
+        rate = {'behavior': 'rate'}
+        base, head = {'valid': 5, 'assertion_passes': {'behavior': 5}}, {'valid': 5, 'assertion_passes': {'behavior': 3}}
+        self.assertEqual(stats.decide(rate, 'behavior', base, head, 5)['verdict'], 'non-inferior')
+        self.assertEqual(stats.decide(rate, 'behavior', base, head, 5, margin_n=8)['verdict'], 'inconclusive')
 
     def test_sequential_step_thresholds_and_stop_reasons(self):
-        def step(base, head, looks=(5, 10), index=0, **zero):
+        def step(base, head, looks=(5, 10), index=0, family=1, **zero):
             valid = looks[index]
             b = {'valid': valid, 'assertion_passes': {'behavior': base, 'preserved': valid}}
             h = {'valid': valid, 'assertion_passes': {'behavior': head, 'preserved': zero.get('preserved', valid)}}
-            return stats.sequential_step(ASSERTIONS, 'behavior', b, h, list(looks), index)
+            return stats.sequential_step(ASSERTIONS, 'behavior', b, h, list(looks), index, family=family)
         self.assertEqual(stats.look_threshold([5, 10]), 0.025)
         self.assertEqual(stats.look_threshold([3, 6, 9]), 0.05 / 3)
         self.assertEqual(step(5, 5, preserved=4)['reason'], 'zero_tolerance')
         self.assertEqual(step(0, 5)['reason'], 'significant')  # p = 0.0079 < 0.025.
+        # A correction over four tests could lift p above 0.025, so the gate is 0.025 / 4.
+        self.assertEqual(step(0, 5, family=4)['outcome'], 'continue')
         self.assertEqual(step(5, 5)['reason'], 'futility')  # Even 5/10 against 10/10 has p = 0.0325.
         self.assertEqual(step(2, 2, looks=(3, 10))['outcome'], 'continue')  # 2/10 against 9/10 is still possible.
         last = step(7, 7, looks=(3, 10), index=1)

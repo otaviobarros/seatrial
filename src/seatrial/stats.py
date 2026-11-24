@@ -97,13 +97,15 @@ def adjust(p_values, method):
     raise ValueError(f'unknown correction {method!r}; choose one of {", ".join(CORRECTIONS)}')
 
 
-def decide(assertions, primary, base, head, n, adjusted=None, alpha=ALPHA):
+def decide(assertions, primary, base, head, n, adjusted=None, alpha=ALPHA, margin_n=None):
     """Compare two arms of one case on one host.
 
     base and head hold 'valid' (graded trials) and 'assertion_passes' ({id: count}).
     adjusted maps each assertion to a corrected p-value; when given, the Fisher
     thresholds below use it in place of the raw p-value. alpha replaces 0.05, for
-    example with the per-look threshold of a sequential run.
+    example with the per-look threshold of a sequential run. margin_n sets the
+    non-inferiority margin when it differs from n, such as the planned n of a case
+    that stopped early.
     - regressed: a zero-tolerance assertion newly fails, or any assertion is
       significantly worse (Fisher p < 0.05).
     - improved: the primary assertion is significantly better and head has no
@@ -125,7 +127,7 @@ def decide(assertions, primary, base, head, n, adjusted=None, alpha=ALPHA):
         verdict = 'regressed'
     elif hp[primary] / nh > bp[primary] / nb and gate[primary] < alpha and not zero_fail_head:
         verdict = 'improved'
-    elif not zero_fail_head and all(hp[a] / nh >= bp[a] / nb - 2 / n for a in assertions):
+    elif not zero_fail_head and all(hp[a] / nh >= bp[a] / nb - 2 / (margin_n or n) for a in assertions):
         verdict = 'non-inferior'
     else:
         verdict = 'inconclusive'
@@ -141,14 +143,17 @@ def look_threshold(looks, alpha=ALPHA):
     return alpha / len(looks)
 
 
-def sequential_step(assertions, primary, base, head, looks, index, alpha=ALPHA):
+def sequential_step(assertions, primary, base, head, looks, index, alpha=ALPHA, family=1):
     """Decide whether one case and host stops after look `index` of a sequential run.
 
     Returns {n, p_values, threshold, outcome, reason}; outcome is 'stop' or 'continue',
     and reason is zero_tolerance, significant, futility, or max_n when it stops.
+    `family` is the most tests a later correction can adjust across; the stop gate divides
+    the threshold by it, so a Holm or BH adjusted p-value still passes after a stop.
     Futility asks whether the remaining trials could still move a Fisher test past the
-    threshold; it does not wait for a later zero-tolerance failure."""
-    look, threshold, last = looks[index], look_threshold(looks, alpha), index == len(looks) - 1
+    gate; it does not wait for a later zero-tolerance failure."""
+    look, last = looks[index], index == len(looks) - 1
+    threshold = look_threshold(looks, alpha) / family
     step = {'n': look, 'p_values': {}, 'threshold': threshold, 'outcome': 'continue', 'reason': None}
 
     def stop(reason):

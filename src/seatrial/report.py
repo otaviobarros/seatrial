@@ -94,8 +94,9 @@ def correct(summary, method):
     The family is every assertion of every case and host with a decision whose margins
     allow p < alpha; an assertion that cannot reach significance, such as 10/10 against
     10/10, stays outside it and keeps its raw p-value. A new zero-tolerance failure does
-    not use p-values. A sequential run tests at its per-look threshold and judges each
-    case at the look where it stopped. Works on a stored summary too."""
+    not use p-values. A sequential run tests at its per-look threshold; the
+    non-inferiority margin keeps the planned n, so an early stop never widens it.
+    Works on a stored summary too."""
     sequential = summary.get('sequential') or {}
     looks = summary.get('looks') or sequential.get('looks')
     alpha = stats.look_threshold(looks) if looks else stats.ALPHA
@@ -108,7 +109,7 @@ def correct(summary, method):
             record = (sequential.get('cases') or {}).get(case_id, {}).get(host)
             n = (record or {}).get('stopped_at') or summary['n']
             decision = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], n,
-                                    alpha=alpha)
+                                    alpha=alpha, margin_n=summary['n'])
             plain[(case_id, host)] = (decision, n, record)
             for assertion, p in sorted((decision.get('p_values') or {}).items()):
                 counts = (arms['base']['assertion_passes'][assertion], arms['base']['valid'],
@@ -124,12 +125,12 @@ def correct(summary, method):
             entry = summary['cases'][case_id]
             arms = entry['hosts'][host]['arms']
             corrected = stats.decide(entry['assertions'], entry['primary'], arms['base'], arms['head'], n,
-                                     adjusted=adjusted[(case_id, host)], alpha=alpha)
+                                     adjusted=adjusted[(case_id, host)], alpha=alpha, margin_n=summary['n'])
             if corrected['verdict'] != decision['verdict']:
                 corrected['verdict_uncorrected'] = decision['verdict']
             decision = corrected
         if record:
-            decision['sequential'] = record
+            decision['sequential'] = dict(record, superseded=stop_superseded(record, decision))
         summary['cases'][case_id]['hosts'][host]['decision'] = decision
     summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
     return summary
@@ -152,13 +153,26 @@ def sequential_note(summary):
     if not info:
         return None
     return (f"sequential: looks {', '.join(map(str, info['looks']))}, threshold {info['threshold']:.4g} per look; "
-            f"{info['trials_run']} of {info['trials_planned']} planned trials run")
+            f"{info['trials_run']} of {info['trials_planned']} planned trials run, {info['trials_saved']} saved"
+            + (f", {info['trials_skipped']} skipped by a budget or stop" if info.get('trials_skipped') else ''))
+
+
+def stop_superseded(record, decision):
+    """True when a regrade or a correction gave a verdict the recorded stop reason contradicts."""
+    reason, significant = record.get('stop_reason'), decision['verdict'] in ('regressed', 'improved')
+    if reason == 'zero_tolerance':
+        return not decision.get('new_zero_tolerance_failures')
+    if reason in ('significant', 'futility'):
+        return significant != (reason == 'significant')
+    return False
 
 
 def stop_text(decision):
     """Where a sequential case stopped, for example 'n=5 significant'."""
     record = (decision or {}).get('sequential') or {}
-    return f"n={record['stopped_at']} {record['stop_reason']}" if record.get('stopped_at') else ''
+    if not record.get('stopped_at'):
+        return ''
+    return f"n={record['stopped_at']} {record['stop_reason']}" + (', superseded' if record.get('superseded') else '')
 
 
 def verdict_text(decision, style=str):

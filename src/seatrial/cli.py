@@ -479,12 +479,13 @@ def command_schema(parser, args):
                          'futility': 'the remaining trials could not reach a significant result',
                          'max_n': 'the last look was reached'},
         'summary_fields': {
-            'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, trials_planned: int, '
-                          'trials_run: int, trials_saved: int, cases: {id: {host: <decision.sequential>}}}; '
-                          'present for --sequential runs',
+            'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, stop_family: int, '
+                          'trials_planned: int, trials_run: int, trials_saved: int, trials_skipped: int, '
+                          'cases: {id: {host: <decision.sequential>}}}; present for --sequential runs',
             'cases.<id>.hosts.<host>.decision.sequential': '{looks: [{n: int, p_values: {assertion: float}, '
-                                                           'threshold: float, outcome: str}], stopped_at: int, '
-                                                           'stop_reason: str, trials_saved: int}; present for '
+                                                           'threshold: float, outcome: str}], '
+                                                           'stopped_at: int|null, stop_reason: str|null, '
+                                                           'trials_saved: int, superseded: bool}; present for '
                                                            '--sequential runs',
             'multiple_comparisons': '{method: str, family_size: int, alpha: float}; the family leaves out '
                                     'tests whose pass counts cannot reach p < alpha',

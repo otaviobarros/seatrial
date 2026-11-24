@@ -54,6 +54,16 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(trivial['adjusted_p_values'], trivial['p_values'])
         self.assertEqual(data['multiple_comparisons']['family_size'], 1)
 
+    def test_a_contradicted_sequential_stop_is_marked_superseded(self):
+        data = summary([(9, 0), (9, 9)])
+        data['sequential'] = {'looks': [9], 'cases': {f'demo-{i:03d}': {'fake': {
+            'looks': [], 'stopped_at': 9, 'stop_reason': 'significant', 'trials_saved': 0}} for i in range(2)}}
+        data = report.correct(data, 'none')
+        kept, stale = (data['cases'][f'demo-{i:03d}']['hosts']['fake']['decision'] for i in range(2))
+        self.assertFalse(kept['sequential']['superseded'])
+        self.assertTrue(stale['sequential']['superseded'])
+        self.assertEqual(report.stop_text(stale), 'n=9 significant, superseded')
+
     def test_decisions_without_p_values_stay_outside_the_family(self):
         data = summary([(9, 9)])
         data['cases']['demo-000']['hosts']['fake']['arms']['head']['valid'] = 3

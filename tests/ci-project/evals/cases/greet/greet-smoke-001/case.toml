@@ -1,0 +1,9 @@
+id = "greet-smoke-001"
+version = 1
+skill = "greet"
+suite = "capability"
+summary = "The host loads the skill and leaves the project unchanged."
+rules = []
+primary = "skill-loaded"
+# rate: compared as a pass rate. zero: any failure is a regression.
+assertions = { skill-loaded = "rate", preserved = "zero" }

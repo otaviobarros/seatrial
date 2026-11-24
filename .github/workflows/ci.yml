@@ -68,6 +68,29 @@ jobs:
           python -c 'import json; plan = json.load(open("plan.json")); assert plan["count"] > 0, plan'
           python -c 'import pathlib, seatrial.hosts as h; assert any(pathlib.Path(h.__file__).parent.glob("samples/*/*.jsonl"))'
 
+  # Runs the reusable workflow as a caller would, on a sample project, without native calls.
+  seatrial-workflow:
+    name: Reusable workflow dry run
+    uses: ./.github/workflows/seatrial.yml
+    with:
+      seatrial-package: .
+      working-directory: tests/ci-project
+      base-ref: HEAD
+      changed: false
+      models: claude=claude-haiku-5-5
+      n: 3
+      dry-run: true
+
+  # The default --changed path: an unchanged tree affects no case, and exit 5 passes.
+  seatrial-workflow-unchanged:
+    name: Reusable workflow with no affected case
+    uses: ./.github/workflows/seatrial.yml
+    with:
+      seatrial-package: .
+      working-directory: tests/ci-project
+      base-ref: HEAD
+      dry-run: true
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

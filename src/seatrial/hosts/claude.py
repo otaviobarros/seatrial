@@ -111,7 +111,7 @@ def parse_stream(path, project='.', prompt=''):
     subagent emits one result per turn, and only the last one ends the process.
     A prompt that starts with `/<skill>` expands that skill without a Skill call, so the
     skill counts as loaded when the init event lists it as a slash command."""
-    out = new_evidence()
+    out = new_evidence() | {'tools': []}
     path = Path(path)
     if not path.exists():
         return out

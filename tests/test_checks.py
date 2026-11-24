@@ -30,12 +30,16 @@ class ToolUsedTests(unittest.TestCase):
     def test_a_collection_names_tools_across_hosts(self):
         self.assertTrue(tool_used(TRACE, {'Bash', 'shell'}, {'command': 'make check'})[0])
 
+    def test_fields_that_are_not_strings_match_as_json(self):
+        trace = evidence(('apply_patch', {'paths': ['a.py']}), ('Edit', {'replace_all': True}))
+        self.assertTrue(tool_used(trace, 'apply_patch', {'paths': r'"a\.py"'})[0])
+        self.assertTrue(tool_used(trace, 'Edit', {'replace_all': '^true$'})[0])
+
     def test_a_call_without_the_field_does_not_match(self):
         self.assertFalse(tool_used(TRACE, 'Bash', {'cwd': r'.*'})[0])
 
     def test_evidence_without_tools_fails_every_helper(self):
         old = new_evidence()
-        del old['tools']
         self.assertEqual(tool_calls(old, 'Bash'), [])
         self.assertEqual(tool_used(old, 'Bash'), (False, UNRECORDED))
         self.assertEqual(tool_order(old, 'Bash', 'Write'), (False, UNRECORDED))

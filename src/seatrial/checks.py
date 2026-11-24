@@ -171,17 +171,21 @@ def _matches(call, matching):
     if callable(matching):
         return bool(matching(call['input']))
     data = call['input']
-    return all(field in data and re.search(pattern, str(data[field])) for field, pattern in matching.items())
+    return all(field in data and re.search(pattern, _text(data[field])) for field, pattern in matching.items())
 
 
-UNRECORDED = 'evidence predates tool recording'
+def _text(value):
+    return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+
+UNRECORDED = 'tool calls not recorded'
 
 
 def tool_calls(evidence, name, matching=None):
     """(position, call) for each recorded call to `name`, a tool name or a collection of names.
 
     `matching` is a dict of input field to regular expression, or a function of the input.
-    A call without the field does not match. Evidence saved before `tools` existed has no calls."""
+    A call without the field does not match. Evidence without `tools` has no calls."""
     names = _names_of(name)
     return [(i, c) for i, c in enumerate(evidence.get('tools', []))
             if c['name'] in names and _matches(c, matching)]

@@ -303,6 +303,20 @@ class CodexAdapterTests(unittest.TestCase):
         evidence['tools'] = [{'name': 'Bash', 'input': 'make check'}]
         self.assertIn('tools must hold {"name": str, "input": dict} entries', validate_evidence(evidence))
 
+    def test_a_codex_item_without_an_id_is_recorded_once(self):
+        item = {'type': 'command_execution', 'command': 'make check'}
+        with tempfile.TemporaryDirectory() as folder:
+            stream = Path(folder, 'stream.jsonl')
+            stream.write_text(''.join(json.dumps({'type': kind, 'item': item}) + '\n'
+                                      for kind in ('item.started', 'item.completed')))
+            self.assertEqual(codex.parse_stream(stream)['tools'],
+                             [{'name': 'shell', 'input': {'command': 'make check'}}])
+
+    def test_evidence_without_tools_is_valid(self):
+        evidence = codex.parse_stream('/missing')
+        del evidence['tools']
+        self.assertEqual(validate_evidence(evidence), [])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -157,7 +157,8 @@ folder), and `SHARED` (`{file stem: module or folder}`).
 
 `evidence` holds the keys of `EVIDENCE_KEYS` in `seatrial/ports.py`: commands,
 edited files, skills loaded, final message, delegations, usage, cost, errors,
-`terminal`, and `tools`.
+and `terminal`. The Claude and Codex adapters also return `tools`, from
+`OPTIONAL_EVIDENCE_KEYS`.
 
 `tools` lists every tool call in call order as `{"name": ..., "input": {...}}`.
 Names come from the host: Claude reports `Bash`, `Read`, `Edit`, and
@@ -165,9 +166,10 @@ Names come from the host: Claude reports `Bash`, `Read`, `Edit`, and
 collaboration tools such as `spawn_agent`, and `mcp__<server>__<tool>`. On Claude,
 delegated calls appear where they ran. On Codex, delegated calls follow the
 parent's calls, because the trace does not show how the sessions interleaved.
-On runs recorded before `tools` existed, `tool_used`, `tool_order`, and
-`steps_at_most` fail with `evidence predates tool recording`; rerun those trials
-before grading them with these helpers.
+When evidence has no `tools`, as on runs recorded before it existed or on a host
+that cannot show tool calls, `tool_used`, `tool_order`, and `steps_at_most` fail
+with `tool calls not recorded`. Rerun old trials before grading them with these
+helpers.
 
 The runner adds `source_changes`, `git_changed`, `plugin_changed`, and
 `project_base`. `seatrial schema --json` prints the list.

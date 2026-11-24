@@ -262,7 +262,7 @@ def _add_tool(out, positions, item):
 
 def parse_stream(path):
     """Commands, edits, tool calls, delegations, usage, and errors from a `codex exec --json` stream."""
-    out = new_evidence()
+    out = new_evidence() | {'tools': []}
     collab, receivers, spawns, positions = False, set(), 0, {}
     path = Path(path)
     if not path.exists():
@@ -279,7 +279,9 @@ def parse_stream(path):
         elif kind in ('turn.failed', 'error'):
             out['errors'].append(json.dumps(event)[:500])
         elif kind == 'item.started':
-            _add_tool(out, positions, event.get('item') or {})
+            item = event.get('item') or {}
+            if item.get('id') is not None:  # Without an id, the completed event cannot replace it.
+                _add_tool(out, positions, item)
         elif kind == 'item.completed':
             item = event.get('item') or {}
             _add_tool(out, positions, item)

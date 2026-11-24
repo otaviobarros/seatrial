@@ -42,6 +42,11 @@ EVIDENCE_KEYS = {
     'cost_usd': (float, int, type(None)),  # host-reported cost, when the host reports one
     'errors': list,           # host error events, truncated
     'terminal': bool,         # the host reported a completed final turn
+}
+
+# Keys an adapter returns only when its trace shows them. Graders treat a missing key
+# as "not recorded", which differs from an empty list.
+OPTIONAL_EVIDENCE_KEYS = {
     'tools': list,            # tool calls in call order, each {"name": str, "input": dict}
 }
 
@@ -49,13 +54,13 @@ EVIDENCE_KEYS = {
 def new_evidence():
     return {'commands': [], 'file_changes': [], 'skills': [], 'final_message': None,
             'delegations': 0, 'delegation_traces': 0, 'usage': None, 'cost_usd': None,
-            'errors': [], 'terminal': False, 'tools': []}
+            'errors': [], 'terminal': False}
 
 
 def validate_evidence(evidence):
     """Return a list of contract problems; an empty list means the evidence is valid."""
     problems = [f'missing {key}' for key in EVIDENCE_KEYS if key not in evidence]
-    for key, kind in EVIDENCE_KEYS.items():
+    for key, kind in (EVIDENCE_KEYS | OPTIONAL_EVIDENCE_KEYS).items():
         if key in evidence and not isinstance(evidence[key], kind):
             problems.append(f'{key} has type {type(evidence[key]).__name__}')
     for key in ('commands', 'file_changes', 'skills', 'errors'):

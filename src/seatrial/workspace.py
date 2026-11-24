@@ -1,5 +1,6 @@
 """Skill mounts, file manifests, and the run state directory."""
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -21,10 +22,56 @@ def state():
     return config.current().state
 
 
-def git(*args, cwd=None):
+def git(*args, cwd=None, strip=True):
     cwd = cwd or config.current().root
-    return subprocess.run(['git', '-C', str(cwd), *args], check=True,
-                          capture_output=True, text=True).stdout.strip()
+    out = subprocess.run(['git', '-C', str(cwd), *args], check=True, capture_output=True, text=True).stdout
+    return out.strip() if strip else out
+
+
+def _skipped(path, mounted=True):
+    """True for caches, and for runtime artifacts in mounted files; a fixture may seed `.scratch`."""
+    return (mounted and bool(RUNTIME.intersection(path.parts))) or any(
+        fnmatch.fnmatch(part, pattern) for part in path.parts for pattern in IGNORE)
+
+
+def changed_files(ref):
+    """(Git top level, changed paths, unseen inputs) for changes since ref.
+
+    Compares the merge base of ref and HEAD with the working tree, so `--changed origin/main`
+    is what a branch changed. Untracked files count, except caches and files that mounts skip;
+    a rename lists both paths. Unseen inputs are identity_files and python_path entries outside
+    the repository, whose changes the diff cannot show.
+    """
+    cfg = config.current()
+    try:
+        top = Path(git('rev-parse', '--show-toplevel', cwd=cfg.root)).resolve()
+        tops = {Path(git('rev-parse', '--show-toplevel', cwd=f)).resolve() for f in (cfg.skills, cfg.cases)
+                if f.is_dir()}
+    except (subprocess.CalledProcessError, OSError):
+        tops = None
+    if tops is None or tops - {top}:
+        raise ValueError(f'--changed needs {config.FILENAME}, the skills, and the cases in one Git repository')
+    try:
+        if ref.startswith('-'):
+            raise subprocess.CalledProcessError(1, 'git')
+        commit = git('rev-parse', '--verify', '--quiet', ref + '^{commit}', cwd=top)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'--changed {ref}: not a Git revision in {top}') from None
+    try:
+        base = git('merge-base', commit, 'HEAD', cwd=top)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'--changed {ref}: no common ancestor with HEAD') from None
+    try:
+        # Keep -z output whole: a file name may start with a space.
+        tracked = git('diff', '--name-only', '-z', '--no-renames', base, '--', cwd=top, strip=False)
+        untracked = git('ls-files', '-z', '--others', '--exclude-standard', '--full-name', cwd=top, strip=False)
+    except subprocess.CalledProcessError:
+        raise ValueError(f'--changed {ref}: cannot list changes in {top}') from None
+    paths = (Path(p) for p in (tracked + '\0' + untracked).split('\0') if p)
+    cases = cfg.cases.resolve()
+    changed = sorted({top / p for p in paths if not _skipped(p, mounted=not (top / p).is_relative_to(cases))})
+    unseen = [p for p in [*cfg.identity_files, *cfg.python_path] if not Path(p).resolve().is_relative_to(top)]
+    return top, changed, unseen
 
 
 def source():

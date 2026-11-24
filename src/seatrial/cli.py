@@ -30,7 +30,7 @@ from seatrial.ports import EVIDENCE_KEYS, OPTIONAL_EVIDENCE_KEYS
 from seatrial.workspace import NONE, WORKTREE
 
 # Exit codes. Agents and CI can branch on them.
-EXIT = {'ok': 0, 'failed': 1, 'usage': 2, 'config': 3, 'regressed': 4}
+EXIT = {'ok': 0, 'failed': 1, 'usage': 2, 'config': 3, 'regressed': 4, 'no_cases': 5}
 NEEDS_CONFIG = {'doctor': False, 'init': False, 'schema': False}
 
 
@@ -65,6 +65,8 @@ def add_selectors(parser):
     parser.add_argument('--host', action='append', default=[], help='Host adapter; repeatable')
     parser.add_argument('--holdout', action='store_true',
                         help='Select only held-out cases; without it, run and compare skip them')
+    parser.add_argument('--changed', metavar='REF',
+                        help='Cases affected by files changed between REF and the working tree')
 
 
 def add_run_options(parser):
@@ -181,11 +183,23 @@ def chatter(args):
 
 
 def selected(parser, args, holdout):
+    """The selected cases. With --changed, also set args.because to {case id: reasons}."""
+    args.because = None
     try:
-        found = case_index.select(case_index.discover(), args.case, args.skill, args.rule, args.suite, args.host,
-                                  holdout)
+        cases = case_index.discover()
+        if args.changed is not None:
+            top, paths, unseen = workspace.changed_files(args.changed)
+            for path in unseen:
+                print(ui.warn(f'--changed cannot see changes to {path}: it is outside the Git repository'),
+                      file=sys.stderr)
+            args.because = case_index.affected(cases, paths, top)
+        found = case_index.select(cases, args.case, args.skill, args.rule, args.suite, args.host,
+                                  holdout, args.because)
     except ValueError as error:
         parser.error(str(error))
+    if not found and args.changed is not None and \
+            case_index.select(cases, args.case, args.skill, args.rule, args.suite, args.host, holdout):
+        fail('no affected cases', 'no_cases')
     if not found:
         parser.error('no case matches the selectors; run `seatrial list`')
     return found
@@ -196,20 +210,23 @@ def command_list(parser, args):
         empty = not case_index.discover()
     except ValueError as error:
         parser.error(str(error))
-    if not any((args.case, args.skill, args.rule, args.suite, args.host, args.holdout)) and empty:
+    if not any((args.case, args.skill, args.rule, args.suite, args.host, args.holdout, args.changed)) and empty:
         emit(args, [], ui.info('no cases yet; run `seatrial new-case`'))
         return EXIT['ok']
     # Listing shows held-out cases too, marked, so they are never forgotten.
     found = selected(parser, args, True if args.holdout else None)
     errors = {c.id: c.load_error() for c in found}
+    because = args.because
     rows = [[c.id, c.skill, c.suite + (' holdout' if c.holdout else ''), ','.join(c.hosts),
-             ui.style(errors[c.id], 'red') if errors[c.id] else c.summary] for c in found]
+             ui.style(errors[c.id], 'red') if errors[c.id] else c.summary]
+            + (['; '.join(because[c.id])] if because is not None else []) for c in found]
     data = [{'id': c.id, 'skill': c.skill, 'suite': c.suite, 'holdout': c.holdout, 'hosts': c.hosts,
              'rules': c.rules,
              'summary': c.summary, 'assertions': c.assertions, 'primary': c.primary,
-             'path': str(c.path), 'error': errors[c.id]} for c in found]
-    emit(args, data, ui.table(['Case', 'Skill', 'Suite', 'Hosts', 'Summary'], rows)
-         + '\n' + ui.style(ui.count(len(found), 'case'), 'dim'))
+             'path': str(c.path), 'error': errors[c.id]}
+            | ({'selected_because': because[c.id]} if because is not None else {}) for c in found]
+    headers = ['Case', 'Skill', 'Suite', 'Hosts', 'Summary'] + (['Changed'] if because is not None else [])
+    emit(args, data, ui.table(headers, rows) + '\n' + ui.style(ui.count(len(found), 'case'), 'dim'))
     return EXIT['ok']
 
 
@@ -321,8 +338,11 @@ def command_trials(parser, args, revisions):
         trials = plan_view(jobs, models, revisions, args.trigger)
         lines = [f"{t['case']} {t['host']}:{t['model']} {t['arm']}={t['revision']} #{t['index']}"
                  + (' trigger=auto' if t['trigger'] == 'auto' else '') for t in trials]
-        emit(args, {'dry_run': True, 'trials': trials, 'count': len(trials)},
-             '\n'.join(lines + [ui.info(f'{len(jobs)} trials; no native calls made')]))
+        data = {'dry_run': True, 'trials': trials, 'count': len(trials)}
+        if args.because is not None:
+            data['selected_because'] = {c.id: args.because[c.id] for c in chosen}
+            lines = [ui.info(f"{c.id}: {'; '.join(args.because[c.id])}") for c in chosen] + lines
+        emit(args, data, '\n'.join(lines + [ui.info(f'{len(jobs)} trials; no native calls made')]))
         return EXIT['ok']
     options = {'n': values['n'], 'models': models, 'effort': args.effort, 'timeout': args.timeout,
                'jobs': values['jobs'], 'max_minutes': values['max_minutes'], 'max_cost_usd': args.max_cost_usd,

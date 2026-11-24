@@ -6,9 +6,10 @@ plugin is copied to `<project>/.agents`, where Codex discovers project skills; t
 NONE revision copies nothing. The
 sandbox writes only inside the project, including its `.git`; `.agents` stays read-only.
 Delegated sessions do not appear in the parent's JSON stream; their rollouts in the
-private CODEX_HOME are read before it is deleted, so their tool calls follow the
-parent's calls in `tools` rather than interleaving with them.
+private CODEX_HOME are read before it is deleted. The parent's rollout times the
+stream's calls, so delegated calls in `tools` appear where they completed.
 """
+import difflib
 import json
 import os
 from pathlib import Path
@@ -90,7 +91,8 @@ class Codex(HostAdapter):
             evidence['delegations'] = max(evidence['delegations'], children['sessions'])
             evidence['commands'] += children['commands']
             evidence['file_changes'] += children['file_changes']
-            evidence['tools'] += children['tools']
+            evidence['tools'] = interleave(evidence['tools'], parent_calls(home / 'codex'),
+                                           children['tools'])
             evidence['skills'] += children['skills']
             evidence['skill_reads'] = evidence.get('skill_reads', []) + children['skill_reads']
         return evidence
@@ -218,25 +220,30 @@ def _add_reads(out, command, cwd):
     out.setdefault('skill_reads', []).extend(reads)
 
 
+def _kind(item):
+    """The item type in snake case: the stream writes `command_execution`, rollouts `CommandExecution`."""
+    return re.sub(r'(?<=[a-z])(?=[A-Z])', '_', str(item.get('type') or '')).lower()
+
+
 def tool_call(item):
     """A tool call entry for one Codex item, or None when the item is not a tool call.
 
     Names follow the Codex item: `shell`, `apply_patch`, `web_search`, the collaboration
     tool (`spawn_agent`, `wait`, ...), and `mcp__<server>__<tool>` for MCP calls."""
-    kind = item.get('type')
+    kind = _kind(item)
     if kind == 'mcp_tool_call':
         arguments = item.get('arguments')
         return {'name': f"mcp__{item.get('server', '')}__{item.get('tool', '')}",
                 'input': arguments if isinstance(arguments, dict) else {}}
-    if kind == 'web_search':
+    if kind == 'web_search' or (kind == 'extension' and item.get('kind') == 'web.search'):
         return {'name': 'web_search', 'input': {'query': str(item.get('query', ''))}}
-    if kind == 'collab_tool_call':
+    if kind in ('collab_tool_call', 'collab_agent_tool_call'):
         return {'name': str(item.get('tool', '')),
                 'input': {k: item[k] for k in ('prompt', 'receiver_thread_ids') if item.get(k) is not None}}
     # Delegated rollouts may omit the item type; the command or changes field identifies the call.
     if kind == 'command_execution' or item.get('command'):
         command = item.get('command', '')
-        return {'name': 'shell', 'input': {'command': ' '.join(command) if isinstance(command, list)
+        return {'name': 'shell', 'input': {'command': shlex.join(command) if isinstance(command, list)
                                            else str(command)}}
     if kind == 'file_change' or item.get('changes'):
         found = item.get('changes')
@@ -246,24 +253,10 @@ def tool_call(item):
     return None
 
 
-def _add_tool(out, positions, item):
-    """Record a call at its first event; a later event for the same item replaces its input."""
-    call = tool_call(item)
-    if call is None:
-        return
-    key = item.get('id')
-    if key is not None and key in positions:
-        out['tools'][positions[key]] = call
-        return
-    if key is not None:
-        positions[key] = len(out['tools'])
-    out['tools'].append(call)
-
-
 def parse_stream(path):
     """Commands, edits, tool calls, delegations, usage, and errors from a `codex exec --json` stream."""
     out = new_evidence() | {'tools': []}
-    collab, receivers, spawns, positions = False, set(), 0, {}
+    collab, receivers, spawns = False, set(), 0
     path = Path(path)
     if not path.exists():
         return out
@@ -278,13 +271,10 @@ def parse_stream(path):
             out['usage'] = event.get('usage')
         elif kind in ('turn.failed', 'error'):
             out['errors'].append(json.dumps(event)[:500])
-        elif kind == 'item.started':
-            item = event.get('item') or {}
-            if item.get('id') is not None:  # Without an id, the completed event cannot replace it.
-                _add_tool(out, positions, item)
         elif kind == 'item.completed':
             item = event.get('item') or {}
-            _add_tool(out, positions, item)
+            if (call := tool_call(item)) is not None:
+                out['tools'].append(call)
             if item.get('type') == 'command_execution':
                 command = str(item.get('command', ''))
                 out['commands'].append(command)
@@ -303,29 +293,87 @@ def parse_stream(path):
     return out
 
 
-def child_traces(codex_home):
-    """Commands and file edits from delegated sessions in a private CODEX_HOME."""
-    commands, changes, sessions, found_reads = [], [], 0, {'skills': [], 'skill_reads': []}
-    calls = []
+def _rollouts(codex_home):
+    """(delegated, lines) for each session rollout in a private CODEX_HOME."""
     for rollout in sorted(Path(codex_home).glob('sessions/**/*.jsonl')):
         lines = rollout.read_text(errors='replace').splitlines()
-        if not lines or '"parent_thread_id"' not in lines[0]:
+        if not lines:
+            continue
+        try:
+            first = json.loads(lines[0])
+        except ValueError:
+            first = None
+        meta = first.get('payload') if isinstance(first, dict) else None
+        if isinstance(meta, dict):
+            yield meta.get('parent_thread_id') is not None, lines
+        else:
+            yield '"parent_thread_id"' in lines[0], lines
+
+
+def _completed_items(lines):
+    """(timestamp, item) for each completed item in a rollout."""
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        payload = event.get('payload') if isinstance(event, dict) else None
+        if not isinstance(payload, dict) or payload.get('type') != 'item_completed':
+            continue
+        if isinstance(payload.get('item'), dict):
+            yield str(event.get('timestamp') or ''), payload['item']
+
+
+def parent_calls(codex_home):
+    """(timestamp, call) for the top-level session's tool calls, or None without its rollout."""
+    found = None
+    for delegated, lines in _rollouts(codex_home):
+        if delegated:
+            continue
+        found = found or []
+        found += [(stamp, call) for stamp, item in _completed_items(lines)
+                  if (call := tool_call(item)) is not None]
+    return found
+
+
+def interleave(stream, parent, children):
+    """The stream's calls with delegated calls placed where they completed.
+
+    The stream stays the record of the parent's calls. The parent's rollout gives the
+    same calls with timestamps: aligning the two by tool name times each stream call,
+    and an unmatched call takes the time of the call before it. Without a parent
+    rollout, delegated calls follow the parent's calls."""
+    if parent is None:
+        return stream + [call for _, call in children]
+    times, last = [], ''
+    rollout_names = [call['name'] for _, call in parent]
+    matcher = difflib.SequenceMatcher(None, [c['name'] for c in stream], rollout_names, autojunk=False)
+    matched = {block.a + k: parent[block.b + k][0] for block in matcher.get_matching_blocks()
+               for k in range(block.size)}
+    for index in range(len(stream)):
+        last = max(last, matched.get(index, last))
+        times.append(last)
+    # On equal times the parent's call stays first; sorted() keeps each list's order.
+    timed = [(stamp, 0, call) for stamp, call in zip(times, stream)] + \
+            [(stamp, 1, call) for stamp, call in children]
+    return [call for _, _, call in sorted(timed, key=lambda entry: entry[:2])]
+
+
+def child_traces(codex_home):
+    """Commands, file edits, and timed tool calls from delegated sessions in a private CODEX_HOME."""
+    commands, changes, sessions, found_reads = [], [], 0, {'skills': [], 'skill_reads': []}
+    calls = []
+    for delegated, lines in _rollouts(codex_home):
+        if not delegated:
             continue
         sessions += 1
-        for line in lines:
-            try:
-                payload = json.loads(line).get('payload') or {}
-            except ValueError:
-                continue
-            item = payload.get('item') if isinstance(payload, dict) else None
-            if payload.get('type') != 'item_completed' or not isinstance(item, dict):
-                continue
+        for stamp, item in _completed_items(lines):
             call = tool_call(item)
             if call is not None:
-                calls.append(call)
+                calls.append((stamp, call))
             command = item.get('command')
             if command:
-                text = ' '.join(command) if isinstance(command, list) else str(command)
+                text = shlex.join(command) if isinstance(command, list) else str(command)
                 commands.append(text)
                 _add_reads(found_reads, command, item.get('cwd'))
             found = item.get('changes')

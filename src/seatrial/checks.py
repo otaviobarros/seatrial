@@ -206,8 +206,7 @@ def tool_used(evidence, name, matching=None):
 def tool_order(evidence, first, then, first_matching=None, then_matching=None):
     """Every `then` call comes after a `first` call. Passes when no `then` call was made.
 
-    A call that matches both sides does not count as after itself. On Codex, delegated
-    calls follow all of the parent's calls."""
+    A call that matches both sides does not count as after itself."""
     if 'tools' not in evidence:
         return False, UNRECORDED
     before = tool_calls(evidence, first, first_matching)

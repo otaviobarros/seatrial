@@ -294,16 +294,72 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(found['sessions'], 1)
         self.assertEqual(found['file_changes'], ['notes.md'])
         self.assertEqual(found['skills'], ['.agents/skills/review-change/SKILL.md'])
-        self.assertEqual(found['tools'], [
-            {'name': 'shell', 'input': {'command': 'bash -lc cat .agents/skills/review-change/SKILL.md'}},
+        self.assertEqual([call for _, call in found['tools']], [
+            {'name': 'shell', 'input': {'command': "bash -lc 'cat .agents/skills/review-change/SKILL.md'"}},
             {'name': 'apply_patch', 'input': {'paths': ['notes.md']}}])
+
+    def test_rollout_timestamps_interleave_delegated_calls(self):
+        # Rollout shapes follow a recorded `codex exec` parent and child rollout pair.
+        def line(stamp, item):
+            return {'timestamp': stamp, 'type': 'event_msg', 'payload': {'type': 'item_completed', 'item': item}}
+
+        def done(item):
+            return {'type': 'item.completed', 'item': item}
+        stream = [done({'id': 'i1', 'type': 'command_execution', 'command': "/bin/zsh -lc 'make check'"}),
+                  done({'id': 'i2', 'type': 'file_change', 'changes': [{'path': 'notes.md'}]}),
+                  done({'id': 'i3', 'type': 'web_search', 'query': 'parent search'}),
+                  done({'id': 'i4', 'type': 'collab_tool_call', 'tool': 'wait', 'prompt': None,
+                        'receiver_thread_ids': ['t-child']})]
+        parent = [{'timestamp': 'T0', 'type': 'session_meta', 'payload': {'id': 't-parent'}},
+                  line('2026-11-15T22:22:54.442Z', {'type': 'CommandExecution', 'id': 'exec-1',
+                                                    'command': ['/bin/zsh', '-lc', 'make check']}),
+                  line('2026-11-15T22:23:12.876Z', {'type': 'SubAgentActivity', 'kind': 'started',
+                                                    'agent_path': '/root/review'}),
+                  line('2026-11-15T22:23:18.905Z', {'type': 'FileChange', 'id': 'exec-2',
+                                                    'changes': {'/abs/notes.md': {'type': 'update'}}}),
+                  line('2026-11-15T22:23:34.137Z', {'type': 'CollabAgentToolCall', 'tool': 'wait',
+                                                    'receiver_thread_ids': ['t-child']})]
+        child = [{'timestamp': 'T0', 'type': 'session_meta', 'payload': {'parent_thread_id': 't-parent'}},
+                 line('2026-11-15T22:23:19.552Z', {'type': 'McpToolCall', 'server': 'tracker',
+                                                   'tool': 'get_issue', 'arguments': {'key': 'DEMO-1'}}),
+                 line('2026-11-15T22:23:20.000Z', {'type': 'Extension', 'kind': 'web.search',
+                                                   'query': 'release notes'})]
+        with tempfile.TemporaryDirectory() as tmp:
+            sessions = Path(tmp) / 'codex/sessions/2026/11/15'
+            sessions.mkdir(parents=True)
+            for name, lines in (('parent.jsonl', parent), ('child.jsonl', child), ('stream.jsonl', stream)):
+                (sessions.parent if name == 'stream.jsonl' else sessions).joinpath(name).write_text(
+                    ''.join(json.dumps(e) + '\n' for e in lines))
+            trial = types.SimpleNamespace(trace=sessions.parent / 'stream.jsonl', state={'home': Path(tmp)})
+            found = codex.Codex().collect(trial)
+        # The parent's calls keep their stream inputs; the parent's web search has no rollout
+        # entry, so it keeps the file change's time and stays before the delegated calls.
+        self.assertEqual(found['tools'], [
+            {'name': 'shell', 'input': {'command': "/bin/zsh -lc 'make check'"}},
+            {'name': 'apply_patch', 'input': {'paths': ['notes.md']}},
+            {'name': 'web_search', 'input': {'query': 'parent search'}},
+            {'name': 'mcp__tracker__get_issue', 'input': {'key': 'DEMO-1'}},
+            {'name': 'web_search', 'input': {'query': 'release notes'}},
+            {'name': 'wait', 'input': {'receiver_thread_ids': ['t-child']}}])
+
+    def test_without_a_parent_rollout_delegated_calls_follow_the_stream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sessions = Path(tmp) / 'codex/sessions'
+            sessions.mkdir(parents=True)
+            (sessions / 'child.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in [
+                {'type': 'session_meta', 'payload': {'parent_thread_id': 't-parent'}},
+                {'timestamp': 'T1', 'payload': {'type': 'item_completed', 'item': {'command': 'make check'}}}]))
+            trial = types.SimpleNamespace(trace=SAMPLES / 'codex/delegated-report.jsonl', state={'home': Path(tmp)})
+            found = codex.Codex().collect(trial)
+        self.assertEqual(found['tools'][-1], {'name': 'shell', 'input': {'command': 'make check'}})
+        self.assertEqual(found['tools'][-2]['name'], 'wait')
 
     def test_invalid_tool_entries_fail_the_evidence_contract(self):
         evidence = codex.parse_stream('/missing')
         evidence['tools'] = [{'name': 'Bash', 'input': 'make check'}]
         self.assertIn('tools must hold {"name": str, "input": dict} entries', validate_evidence(evidence))
 
-    def test_a_codex_item_without_an_id_is_recorded_once(self):
+    def test_a_codex_call_counts_once_and_only_when_it_completes(self):
         item = {'type': 'command_execution', 'command': 'make check'}
         with tempfile.TemporaryDirectory() as folder:
             stream = Path(folder, 'stream.jsonl')
@@ -311,6 +367,9 @@ class CodexAdapterTests(unittest.TestCase):
                                       for kind in ('item.started', 'item.completed')))
             self.assertEqual(codex.parse_stream(stream)['tools'],
                              [{'name': 'shell', 'input': {'command': 'make check'}}])
+            stream.write_text(json.dumps({'type': 'item.started', 'item': item}) + '\n')
+            cut_off = codex.parse_stream(stream)
+        self.assertEqual((cut_off['tools'], cut_off['commands']), ([], []))
 
     def test_evidence_without_tools_is_valid(self):
         evidence = codex.parse_stream('/missing')

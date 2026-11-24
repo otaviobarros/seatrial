@@ -27,6 +27,70 @@ class StatsTests(unittest.TestCase):
         self.assertLess(stats.mann_whitney([1] * 10, [9] * 10), 0.001)
         self.assertEqual(stats.mann_whitney([1, 2, 2], [3, 3, 4]), stats.mann_whitney([3, 3, 4], [1, 2, 2]))
 
+    def test_wilson_matches_reference_values(self):
+        for (c, n), (low, high) in (((7, 10), (0.3968, 0.8922)), ((5, 10), (0.2366, 0.7634)),
+                                    ((1, 3), (0.0615, 0.7923)), ((0, 10), (0.0, 0.2775)),
+                                    ((10, 10), (0.7225, 1.0))):
+            with self.subTest(c=c, n=n):
+                self.assertAlmostEqual(stats.wilson(c, n)[0], low, places=4)
+                self.assertAlmostEqual(stats.wilson(c, n)[1], high, places=4)
+        self.assertEqual(stats.wilson(0, 4)[0], 0.0)
+        self.assertEqual(stats.wilson(4, 4)[1], 1.0)
+        self.assertLess(stats.wilson(7, 10, z=1.0)[1], stats.wilson(7, 10)[1])
+        self.assertIsNone(stats.wilson(0, 0))
+
+    def test_trials_needed_and_detectable_change(self):
+        self.assertEqual(stats.trials_needed(0.6, 0.8), 82)  # Standard two-proportion sample size.
+        self.assertEqual(stats.trials_needed(0.8, 0.6), 82)
+        self.assertIsNone(stats.trials_needed(0.7, 0.7))
+        self.assertIsNone(stats.detectable_change(0.5, 10))
+        self.assertEqual(stats.detectable_change(0.5, 11), 0.5)
+        self.assertEqual(stats.detectable_change(0.7, 10), 0.59)
+        self.assertEqual(stats.detectable_change(0.5, 100), 0.2)
+
+    def test_interpretation_explains_the_verdict_without_changing_it(self):
+        def read(base, head):
+            decision = stats.decide(ASSERTIONS, 'behavior', base, head, 10)
+            return decision, stats.interpret(ASSERTIONS, 'behavior', base, head, decision)
+
+        decision, meaning = read(arm(behavior=6), arm(behavior=8))
+        self.assertEqual((decision['verdict'], meaning['verdict']), ('non-inferior', 'non-inferior'))
+        self.assertTrue(meaning['underpowered'])
+        self.assertEqual(meaning['trials_needed'], 82)
+        self.assertIn('`--n 82`', meaning['recommendation'])
+        self.assertIn('intervals overlap', meaning['explanation'])
+        decision, meaning = read(arm(behavior=7), arm(behavior=7, preserved=9))
+        self.assertEqual(meaning['evidence'], 'zero_tolerance')
+        self.assertIsNone(meaning['recommendation'])
+        decision, meaning = read(arm(behavior=5), arm(behavior=5))
+        self.assertIsNone(meaning['trials_needed'])
+        self.assertEqual(meaning['verdict'], 'non-inferior')
+        self.assertFalse(meaning['underpowered'])
+        self.assertIsNone(meaning['recommendation'])
+        decision, meaning = read(arm(behavior=2, preserved=9), arm(behavior=9, preserved=9))
+        self.assertEqual((meaning['verdict'], meaning['evidence']), ('inconclusive', 'zero_tolerance'))
+        self.assertEqual(meaning['deciding_assertion'], 'preserved')
+        self.assertEqual(meaning['recommendation'], 'Fix `preserved` first; more trials do not change this verdict.')
+        self.assertIsNone(meaning['trials_needed'])
+        self.assertIsNone(meaning['detectable_change'])
+        self.assertFalse(meaning['underpowered'])
+        decision, meaning = read(arm(behavior=3), arm(behavior=9))
+        self.assertEqual((meaning['verdict'], meaning['evidence']), ('improved', 'significant'))
+        self.assertEqual(meaning['primary']['head'], {'passes': 9, 'valid': 10, 'rate': 0.9,
+                                                      'ci': [0.5958, 0.9821], 'margin': 0.1931})
+        self.assertEqual((meaning['deciding_assertion'], round(meaning['deciding_p_value'], 3)), ('behavior', 0.02))
+        self.assertFalse(meaning['underpowered'])
+        many = {'base': {'valid': 1000, 'assertion_passes': {'behavior': 500, 'preserved': 1000}},
+                'head': {'valid': 1000, 'assertion_passes': {'behavior': 510, 'preserved': 1000}}}
+        decision = stats.decide(ASSERTIONS, 'behavior', many['base'], many['head'], 10)
+        meaning = stats.interpret(ASSERTIONS, 'behavior', many['base'], many['head'], decision)
+        self.assertTrue(meaning['underpowered'])
+        self.assertIn('needs more than 1000 trials', meaning['recommendation'])
+        self.assertIn('at 1000 valid trials this run detects changes of about 7 points', meaning['recommendation'])
+        decision, meaning = read(arm(valid=5), arm())
+        self.assertEqual(meaning['evidence'], 'insufficient_trials')
+        self.assertIn('fewer than 8 valid trials', meaning['explanation'])
+
     def test_pass_at_k_and_pass_pow_k(self):
         self.assertEqual(stats.pass_at_k(3, 1, 3), 1.0)
         self.assertAlmostEqual(stats.pass_at_k(4, 1, 2), 0.5)

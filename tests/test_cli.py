@@ -207,7 +207,7 @@ class CommandTests(ProjectCase, unittest.TestCase):
         self.assertEqual(schema['exit_codes'], cli.EXIT)
         self.assertIn('final_message', schema['evidence_keys'])
         self.assertEqual(schema['evidence_keys']['tools'], 'list (optional)')
-        self.assertEqual(schema['report_formats'], ['table', 'markdown', 'github'])
+        self.assertEqual(schema['report_formats'], ['table', 'markdown', 'comment'])
         self.assertIn('not_significant', schema['evidence_levels'])
         self.assertIn('trials_needed', schema['interpretation_fields'])
 

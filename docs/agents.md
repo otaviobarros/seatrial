@@ -45,15 +45,16 @@ and Fisher p-values) and `interpretation`, which reads it for people and tools:
 | `underpowered` | `true` when the difference is not significant and the run had fewer trials than `trials_needed` |
 | `trials_needed` | Trials per revision to detect the observed change with 80% power, on the primary assertion or, for `inconclusive`, on `deciding_assertion`; `null` when there is no change |
 | `detectable_change` | The smallest change, as a fraction, that the run's trial count could detect on the same assertion as `trials_needed`; `null` when no change up to 100 points could be detected |
-| `explanation`, `recommendation` | The same reading as text; the Markdown and GitHub reports print these |
+| `explanation`, `recommendation` | The same reading as text; the `markdown` and `comment` formats print these |
 
 Every arm summary also has `primary_ci` and `assertion_ci` (`{assertion: [low, high]}`).
 [Statistics](statistics.md) explains the method.
 
-For a pull request comment or a job summary, use `--format github` on `run`,
-`compare`, or `report`. Without `--json` it prints only the Markdown on stdout;
-progress and the run directory go to stderr. With `GITHUB_STEP_SUMMARY` set, it also appends that Markdown
-to the file, with or without `--json`.
+For a pull request comment, use `--format comment` on `run`, `compare`, or
+`report`. Without `--json`, stdout holds only the Markdown; progress and the run
+directory go to stderr. `--summary-file PATH` appends the same Markdown to PATH
+with any format, with or without `--json`. [Continuous integration](ci.md) has
+platform recipes.
 
 ## Procedure
 

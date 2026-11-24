@@ -127,7 +127,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `run [--rev REV]` | Run cases against one skill revision |
 | `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
 | `runs` | List retained run directories, newest first |
-| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format github` for a pull request comment |
+| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
@@ -227,11 +227,13 @@ when the result is undecided, how many trials per revision would decide it.
 [Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md)
 explains the method and how to read it.
 
-`--format github` on `run`, `compare`, or `report` prints Markdown for a pull
-request comment: one line per verdict count, then the regressed and inconclusive
-cases, then the full table in a collapsed block. Progress goes to stderr, so
-stdout holds only the Markdown. With `GITHUB_STEP_SUMMARY` set, it also appends
-that Markdown to the job summary.
+`--format comment` on `run`, `compare`, or `report` prints Markdown for a pull
+request comment on any platform: one line per verdict count, then the regressed
+and inconclusive cases, then the full table in a collapsed block. Progress goes
+to stderr, so stdout holds only the Markdown. `--summary-file PATH` also appends
+that Markdown to a file, such as a CI job summary.
+[Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
+has recipes for GitHub Actions, GitLab CI, Azure Pipelines, and any other platform.
 
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, cost, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
@@ -287,6 +289,8 @@ retained trial files before you inspect them with tools that write.
 - [Writing cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md): `case.toml`, `case.py`, evidence, and grading helpers.
 - [Hosts](https://github.com/otaviobarros/seatrial/blob/main/docs/hosts.md): built-in adapters and how to add one.
 - [Using seatrial from an agent](https://github.com/otaviobarros/seatrial/blob/main/docs/agents.md): JSON output, exit codes, and a safe procedure.
+- [Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md): how verdicts, intervals, and trial estimates work, and how to read them.
+- [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md): pull request comments, job summaries, and gates on any platform.
 
 ## License
 

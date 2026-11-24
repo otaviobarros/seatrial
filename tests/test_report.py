@@ -25,9 +25,9 @@ def summary(**hosts):
             'cases': {case_id: {'primary': 'behavior', 'hosts': {'fake': result}} for case_id, result in hosts.items()}}
 
 
-class GithubFormatTests(unittest.TestCase):
+class CommentFormatTests(unittest.TestCase):
     def test_headline_counts_then_attention_in_order_then_details(self):
-        text = report.github(summary(
+        text = report.comment(summary(
             better=comparison(arm(behavior=2), arm(behavior=9)),
             unclear=comparison(arm(valid=5), arm()),
             similar=comparison(arm(behavior=6), arm(behavior=8)),
@@ -51,7 +51,7 @@ class GithubFormatTests(unittest.TestCase):
     def test_single_revision_and_older_summaries_render(self):
         old = arm()
         del old['primary_ci']
-        text = report.github(summary(solo={'arms': {'head': old}}))
+        text = report.comment(summary(solo={'arms': {'head': old}}))
         self.assertTrue(text.startswith('- **no verdict** (one revision): 1\n'))
         self.assertIn('| solo | fake | head | 10/10 | 10/10 |', text)
         self.assertNotIn('Needs attention', text)

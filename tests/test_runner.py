@@ -209,25 +209,24 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertIn('| demo-001 | fake | head | 10/10 | 10/10 (72–100%) |', out)
         step = work / 'step-summary.md'
         step.write_text('earlier step\n')
-        with mock.patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': str(step)}):
-            ok, out = self.cli('report', str(work), '--format', 'github')
-            self.assertTrue(ok, out)
-            self.assertTrue(out.startswith('- **improved**: 1\n'), out)
-            self.assertIn('<details>', out)
-            self.assertNotIn('Needs attention', out)
-            self.assertNotIn(str(work), out)
-            self.assertEqual(step.read_text(), 'earlier step\n' + out.rstrip('\n') + '\n\n')
-            self.cli('report', str(work), '--format', 'markdown')
+        ok, out = self.cli('report', str(work), '--format', 'comment', '--summary-file', str(step))
+        self.assertTrue(ok, out)
+        self.assertTrue(out.startswith('- **improved**: 1\n'), out)
+        self.assertIn('<details>', out)
+        self.assertNotIn('Needs attention', out)
+        self.assertNotIn(str(work), out)
+        self.assertEqual(step.read_text(), 'earlier step\n' + out.rstrip('\n') + '\n\n')
+        self.cli('report', str(work), '--format', 'markdown')
         self.assertEqual(step.read_text().count('<details>'), 1)
 
-    def test_compare_format_github_posts_markdown_and_appends_the_step_summary(self):
+    def test_compare_format_comment_posts_markdown_and_appends_the_summary_file(self):
         step = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'step-summary.md'
         for extra in ([], ['--json']):
-            with self.subTest(extra=extra), mock.patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': str(step)}):
+            with self.subTest(extra=extra):
                 out, err = io.StringIO(), io.StringIO()
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                     code = cli.main(['--no-color', '--config', str(self.cfg.file), 'compare', '--base', 'HEAD',
-                                     '--skill', 'demo', '--host', 'fake', '--n', '1', '--format', 'github', *extra])
+                                     '--skill', 'demo', '--host', 'fake', '--n', '1', '--format', 'comment', '--summary-file', str(step), *extra])
                 self.assertEqual(code, 0, err.getvalue())
                 if extra:
                     payload = json.loads(out.getvalue())

@@ -161,14 +161,14 @@ def markdown(summary):
                      + (['', '**How to read the verdicts**', ''] + readings if readings else []))
 
 
-FORMATS = ('table', 'markdown', 'github')
-# Verdicts in the order the GitHub report counts and lists them; `none` is a single-revision run.
+FORMATS = ('table', 'markdown', 'comment')
+# Verdicts in the order the comment report counts and lists them; `none` is a single-revision run.
 VERDICT_ORDER = ('regressed', 'inconclusive', 'non-inferior', 'improved', 'none')
 ATTENTION = ('regressed', 'inconclusive')
 
 
-def github(summary):
-    """Markdown for a pull request comment or job summary: verdict counts, cases that
+def comment(summary):
+    """Markdown for a pull request comment or CI job summary on any platform: verdict counts, cases that
     need attention, and the full table in a collapsed block."""
     results = [(case_id, host, entry, result) for case_id, entry in summary['cases'].items()
                for host, result in entry['hosts'].items()]
@@ -195,8 +195,8 @@ def github(summary):
 
 
 def render(summary, fmt):
-    """The summary in one text format: table, markdown, or github."""
-    return {'markdown': markdown, 'github': github}.get(fmt, terminal)(summary)
+    """The summary in one text format: table, markdown, or comment."""
+    return {'markdown': markdown, 'comment': comment}.get(fmt, terminal)(summary)
 
 
 def terminal(summary):

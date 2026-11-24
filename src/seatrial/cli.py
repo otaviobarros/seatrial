@@ -20,7 +20,6 @@ quota; use --dry-run to see the trial plan first. Add --json for machine-readabl
 """
 import argparse
 import json
-import os
 from pathlib import Path
 import sys
 
@@ -93,8 +92,11 @@ def add_run_options(parser):
 
 def add_format(parser):
     parser.add_argument('--format', choices=report.FORMATS, default='table',
-                        help='Summary text: an aligned table, a Markdown table, or Markdown for a pull request '
-                             'comment (github; also appended to $GITHUB_STEP_SUMMARY when set)')
+                        help='Summary text: an aligned table, a Markdown table, or comment Markdown for a pull '
+                             'request or job summary')
+    parser.add_argument('--summary-file', metavar='PATH',
+                        help='Also append the comment Markdown to PATH, such as a CI job summary file; works with '
+                             'any --format and with --json')
 
 
 def add_json(parser):
@@ -350,7 +352,7 @@ def publish(args, meta, records, chosen, work, name='summary.json'):
         print(report.render(summary, fmt))
         # Keep Markdown on stdout free of the local path, so it can be posted as is.
         print(f'\nrun directory (local only): {work}', file=chatter(args))
-    step_summary(fmt, summary)
+    append_summary(args, summary)
     if meta.get('stopped_early'):
         return EXIT['failed']
     if regressed and getattr(args, 'fail_on_regression', False):
@@ -393,19 +395,19 @@ def command_report(parser, args):
         parser.error(f'{work} has no summary; the run may still be going, or it stopped: run `seatrial regrade {work}`')
     summary = json.loads(path.read_text())
     emit(args, {'run_dir': str(work), 'summary': summary}, report.render(summary, args.format))
-    step_summary(args.format, summary)
+    append_summary(args, summary)
     return EXIT['ok']
 
 
-def step_summary(fmt, summary):
-    """With --format github, append the report to the job summary file that GitHub Actions names."""
-    path = os.environ.get('GITHUB_STEP_SUMMARY')
-    if fmt == 'github' and path:
+def append_summary(args, summary):
+    """Append the comment Markdown to --summary-file; a write failure warns and keeps the run's result."""
+    path = getattr(args, 'summary_file', None)
+    if path:
         try:
             with open(path, 'a', encoding='utf-8') as handle:
-                handle.write(report.github(summary) + '\n\n')
+                handle.write(report.comment(summary) + '\n\n')
         except OSError as error:
-            print(ui.warn(f'could not append to GITHUB_STEP_SUMMARY: {error}'), file=sys.stderr)
+            print(ui.warn(f'could not append to --summary-file: {error}'), file=sys.stderr)
 
 
 def command_runs(parser, args):

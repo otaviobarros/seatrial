@@ -136,10 +136,10 @@ trial count; a difference that small does not show the revisions are equivalent.
 | `strong` | p < 0.01 | The change is real; quote both intervals |
 | `significant` | p < 0.05 | The change is likely real; quote both intervals |
 | `not_significant` | p ≥ 0.05 | No detected effect; if `underpowered`, the run was too small to decide |
+| `insufficient_trials` | Too many invalid trials | Fix the invalid statuses, then run again |
 
 Under a correction, the p-value in this table is the adjusted one. A sequential
 run replaces 0.05 with its per-look threshold and 0.01 with a fifth of it.
-| `insufficient_trials` | Too many invalid trials | Fix the invalid statuses, then run again |
 
 Overlapping intervals and a non-significant p-value mean the run cannot tell the
 revisions apart. That is not evidence that they behave the same: at 10 trials only

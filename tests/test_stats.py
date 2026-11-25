@@ -250,5 +250,80 @@ class StatsTests(unittest.TestCase):
         self.assertLessEqual(false / repeats, 0.05)
 
 
+# Penicillin and rabbits (R `mantelhaen.test` example data): per penicillin level, rabbits cured
+# of all treated with no delay (here head) and with a 1.5 h delay (here base). The first and last
+# levels have no variation and drop out. R gives Mantel-Haenszel X-squared = 3.9286 (p = 0.04747),
+# common odds ratio 7, 95% interval 1.0267 to 47.725, and exact conditional p = 0.03994.
+RABBITS = [(0, 5, 0, 6), (0, 6, 3, 6), (2, 6, 6, 6), (6, 6, 5, 6), (5, 5, 2, 2)]
+
+
+class PooledTests(unittest.TestCase):
+    def test_pooled_statistics_match_textbook_values(self):
+        statistic, p = stats.cochran_mantel_haenszel(RABBITS)
+        self.assertAlmostEqual(statistic, 3.9286, places=4)
+        self.assertAlmostEqual(p, 0.04747, places=5)
+        self.assertAlmostEqual(stats.stratified_exact(RABBITS), 0.03994, places=5)
+        estimate, low, high = stats.mantel_haenszel_odds_ratio(RABBITS)
+        self.assertAlmostEqual(estimate, 7.0)
+        self.assertAlmostEqual(low, 1.0267, places=3)  # z = 1.96, as the Wilson intervals use.
+        self.assertAlmostEqual(high / 47.725, 1, places=3)
+        pooled = stats.pool(RABBITS)
+        self.assertEqual((pooled['strata'], pooled['strata_excluded'], pooled['shift']), (3, 2, 'higher'))
+        self.assertEqual((pooled['base'], pooled['head']), ({'passes': 8, 'valid': 18}, {'passes': 14, 'valid': 18}))
+        self.assertEqual(pooled['expected_head_passes'], 11.0)
+
+    def test_one_table_reduces_to_fisher(self):
+        for table in ((5, 10, 8, 10), (10, 10, 5, 10), (0, 10, 10, 10), (3, 7, 9, 12), (7, 10, 3, 5)):
+            with self.subTest(table=table):
+                self.assertAlmostEqual(stats.stratified_exact([table]), stats.fisher(*table), places=12)
+                self.assertAlmostEqual(stats.stratified_min_attainable_p([table]),
+                                       stats.min_attainable_p(*table), places=12)
+
+    def test_small_consistent_gains_pool_into_a_significant_one(self):
+        tables = [(5, 10, 8, 10)] * 5
+        self.assertTrue(all(stats.fisher(*t) > 0.05 for t in tables))
+        pooled = stats.pool(tables)
+        self.assertLess(pooled['p_value'], 0.01)
+        self.assertEqual(stats.pooled_verdict(pooled, pooled['p_value']), 'improved')
+        self.assertEqual(stats.pooled_verdict(pooled, pooled['p_value'], alpha=pooled['p_value'] / 2), 'inconclusive')
+        lower = stats.pool([(8, 10, 5, 10)] * 5)
+        self.assertEqual((lower['shift'], stats.pooled_verdict(lower, lower['p_value'])), ('lower', 'regressed'))
+
+    def test_opposite_effects_cancel(self):
+        pooled = stats.pool([(2, 10, 9, 10), (9, 10, 2, 10)])
+        self.assertEqual((pooled['shift'], pooled['p_value']), ('none', 1.0))
+        self.assertEqual(stats.pooled_verdict(pooled, pooled['p_value']), 'inconclusive')
+
+    def test_tables_without_variation_or_trials_are_left_out(self):
+        empty = stats.pool([(10, 10, 10, 10), (0, 10, 0, 10), (0, 0, 3, 5)])
+        self.assertEqual((empty['strata'], empty['strata_excluded'], empty['p_value']), (0, 3, None))
+        self.assertIsNone(empty['odds_ratio'])
+        self.assertIsNone(empty['cmh'])
+        self.assertEqual(stats.pooled_verdict(empty, None), 'inconclusive')
+        self.assertEqual(stats.pool([(5, 10, 8, 10), (10, 10, 10, 10)])['p_value'], stats.fisher(5, 10, 8, 10))
+
+    def test_one_sided_tables_give_an_unbounded_or_zero_odds_ratio(self):
+        self.assertEqual(stats.mantel_haenszel_odds_ratio([(0, 10, 10, 10), (3, 10, 10, 10)]), (None, None, None))
+        self.assertEqual(stats.mantel_haenszel_odds_ratio([(10, 10, 0, 10)]), (0.0, None, None))
+
+    def test_many_large_strata_stay_fast(self):
+        import time
+        start = time.perf_counter()
+        stats.pool([(40, 100, 55, 100)] * 30)
+        self.assertLess(time.perf_counter() - start, 5)
+
+    def test_pooled_false_positives_stay_at_or_below_alpha(self):
+        import random
+        generator, repeats, false = random.Random(7), 2000, 0
+        for _ in range(repeats):
+            tables = []
+            for rate in (0.2, 0.5, 0.6, 0.8, 0.9):  # Cases differ in difficulty; the arms do not.
+                tables.append((sum(generator.random() < rate for _ in range(10)), 10,
+                               sum(generator.random() < rate for _ in range(10)), 10))
+            p = stats.stratified_exact(tables)
+            false += p is not None and p < 0.05
+        self.assertLessEqual(false / repeats, 0.05)
+
+
 if __name__ == '__main__':
     unittest.main()

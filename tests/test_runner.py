@@ -82,7 +82,7 @@ class Fake(HostAdapter):
 
 def concrete_paths(path):
     """A documented summary path with its placeholders filled in for the fake runs below."""
-    path = path.replace('<id>', 'demo-001').replace('<host>', 'fake').replace('<arm>', 'head')
+    path = path.replace('<id>', 'demo-001').replace('<host>', 'fake').replace('<arm>', 'head').replace('<skill>', 'demo')
     return [path.replace('<metric>', name) for name in report.EFFICIENCY] if '<metric>' in path else [path]
 
 
@@ -268,6 +268,42 @@ class RunnerTests(ProjectCase, unittest.TestCase):
                     self.assertIn('run directory (local only): ', err.getvalue())
         self.assertEqual(step.read_text().count('<summary>Full results</summary>'), 2)
 
+    def test_small_consistent_gains_give_a_pooled_improved_skill_verdict(self):
+        root = self.cfg.cases
+        for index in range(3, 6):
+            write_case(root, GOOD_TOML.replace('demo-001', f'demo-00{index}') + 'hosts = ["fake"]\n', CASE_PY,
+                       name=f'demo-00{index}')
+        for directory in root.glob('demo/*'):  # A distinct request per case, so failures count per case.
+            (directory / 'case.py').write_text(CASE_PY.replace("return 'Write hello.txt.' if CASE.id == 'demo-001' "
+                                                               "else 'Write hello.txt and report.'",
+                                                               "return f'Write hello.txt for {CASE.id}.'"))
+
+        class SmallGain(Fake):  # Per case, base skips the file 5 times in 10 and head 2 times: 5/10 against 8/10.
+            failed = {}
+
+            def command(self, trial):
+                key, prompt = (trial.plugin.name, trial.prompt), trial.prompt
+                if SmallGain.failed.get(key, 0) < (2 if trial.plugin.name == 'p1' else 5):
+                    SmallGain.failed[key] = SmallGain.failed.get(key, 0) + 1
+                    prompt = 'fail ' + prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        with mock.patch.object(hosts, 'get', lambda name: SmallGain()):
+            ok, out = self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--host', 'fake', '--n', '10',
+                               '--json')
+        self.assertTrue(ok, out)
+        summary = json.loads(out)['summary']
+        self.assertEqual(len(summary['cases']), 5)
+        self.assertTrue(all(entry['hosts']['fake']['decision']['verdict'] == 'non-inferior'
+                            for entry in summary['cases'].values()))
+        pooled = summary['skills']['demo']
+        self.assertEqual((pooled['verdict'], pooled['strata'], pooled['excluded']), ('improved', 5, []))
+        self.assertEqual((pooled['base'], pooled['head']), ({'passes': 25, 'valid': 50}, {'passes': 40, 'valid': 50}))
+        self.assertEqual(json.loads(out)['regressed'], [])
+        ok, out = self.cli('report', 'latest', '--format', 'comment')
+        self.assertIn('#### Pooled by skill', out)
+        self.assertIn('`demo`: improved across 5 case-host pairs', out)
+
     def test_correction_changes_the_regression_gate_and_keeps_documented_fields(self):
         class HalfHead(Fake):  # Per case, five head trials skip the file: 10/10 against 5/10, raw p = 0.0325.
             failed = {}
@@ -302,14 +338,17 @@ class RunnerTests(ProjectCase, unittest.TestCase):
             cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
         documented = json.loads(schema.getvalue())['summary_fields']
         for path, shape in documented.items():
-            if 'present for --sequential' in shape:
-                continue
+            if 'present for --sequential' in shape or path == 'skills.<skill>.verdict_uncorrected':
+                continue  # The pooled test below regresses with and without the correction.
             for concrete in concrete_paths(path):
                 node = summary
                 for part in concrete.split('.'):
                     self.assertIn(part, node, concrete)
                     node = node[part]
         self.assert_documented_types(summary, ['demo-001', 'demo-002'])
+        pooled = summary['skills']['demo']  # 20/20 against 10/20 pooled: regressed, reported and not gated.
+        self.assertEqual((pooled['verdict'], pooled['strata'], pooled['family_size']), ('regressed', 2, 1))
+        self.assertEqual(pooled['odds_ratio']['estimate'], 0.0)
         arms = summary['cases']['demo-001']['hosts']['fake']['arms']
         self.assertEqual((sum(arms['base']['tool_errors_values']), sum(arms['head']['tool_errors_values'])), (0, 5))
         self.assertAlmostEqual(decision['effect_primary']['estimate'], -0.5)
@@ -393,7 +432,7 @@ class RunnerTests(ProjectCase, unittest.TestCase):
             for concrete in concrete_paths(path):
                 node = summary
                 for part in concrete.split('.'):
-                    if part == 'adjusted_p_values' or part == 'verdict_uncorrected':
+                    if part in ('adjusted_p_values', 'adjusted_p_value', 'verdict_uncorrected'):
                         break  # Present only with a correction.
                     self.assertIn(part, node, concrete)
                     node = node[part]

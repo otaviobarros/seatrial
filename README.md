@@ -298,6 +298,35 @@ it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
 method to a stored run without new trials. Cases whose two runs of the same
 revision often disagree need a stricter method, or more trials.
 
+### One verdict per skill
+
+At 10 trials per revision, each case detects only large changes. A skill whose
+five cases each gain a little gets five undecided verdicts, though the edit
+helps. `compare` also pools each skill's cases and hosts into one test on each
+case's primary assertion, an exact stratified form of Fisher's test, and
+reports one verdict per skill: `improved`, `regressed`, or `inconclusive`.
+
+| Cases | Base | Head | p | Verdict |
+|---|---|---|---|---|
+| 5 cases alike | 5/10 | 8/10 | 0.35 | `non-inferior`, underpowered |
+| Pooled | 25/50 | 40/50 | 0.004 | `improved`, odds ratio 4.0 (95% CI 1.6–9.7) |
+
+Each case is compared only inside itself, so an easy case and a hard case never
+mix into one pass rate. Cases with all passes or all failures in both
+revisions cannot inform the test and are listed as excluded. `summary.json`
+stores the result under `skills`, and every report format prints one line per
+skill, marked as pooled and not gated. `--correction` adjusts the pooled tests across skills as a
+family of their own.
+
+The pooled verdict is reported, never gated: the case verdicts and
+`--fail-on-regression` do not change. It assumes the cases share one effect.
+When cases measure different things, a large gain in one can hide a loss in
+another, or opposite effects can cancel; `directions` counts the cases that
+went up, down, or stayed level, and a split means the pooled result describes
+no single case. A pooled `improved` never cancels a case `regressed`.
+[Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md#pooled-skill-verdict)
+has the method and its limits.
+
 ### Stop early when the verdict is clear
 
 `compare --sequential --looks 5,10` runs trials in batches. After each look,

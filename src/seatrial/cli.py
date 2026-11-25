@@ -582,7 +582,38 @@ def command_schema(parser, args):
                                                   'test, both None when an arm has no values; present with two arms',
             'cases.<id>.hosts.<host>.arms.<arm>.<metric>_values': '[number] for each efficiency metric over valid '
                                                                   'trials that report it',
-            'cases.<id>.hosts.<host>.arms.<arm>.<metric>_median': 'number | None for each efficiency metric'},
+            'cases.<id>.hosts.<host>.arms.<arm>.<metric>_median': 'number | None for each efficiency metric',
+            'skills': '{skill: <pooled verdict>}: one exact stratified test per skill across its cases and hosts, '
+                      'on each case\'s primary assertion; reported, never gated; empty without two arms',
+            'skills.<skill>.verdict': 'one of pooled_verdicts, after any correction',
+            'skills.<skill>.p_value': 'float | None: exact conditional (stratified Fisher) two-sided p-value; None '
+                                      'when no case-host pair is informative',
+            'skills.<skill>.odds_ratio': '{estimate: float|None, ci: [float, float]|None, level: float, method: '
+                                         'mantel_haenszel} | None; head against base; estimate None when unbounded',
+            'skills.<skill>.cmh': '{statistic: float, p_value: float} | None: Cochran-Mantel-Haenszel chi-square '
+                                  'with continuity correction, reported beside the exact test',
+            'skills.<skill>.cases': '[{case, host, assertion, base: [passes, valid], head: [passes, valid], shift}] '
+                                    'for every pair in the test',
+            'skills.<skill>.excluded': '[{case, host, reason}]; reason is one of pooled_exclusions',
+            'skills.<skill>.strata': 'int: pairs in the test',
+            'skills.<skill>.strata_excluded': 'int: pairs left out, the length of excluded',
+            'skills.<skill>.base': '{passes, valid} over the pairs in the test; head likewise',
+            'skills.<skill>.shift': 'higher | lower | none | None: head passes against their expectation if the '
+                                    'arms behaved the same; the direction of the verdict',
+            'skills.<skill>.expected_head_passes': 'float | None',
+            'skills.<skill>.directions': '{higher: int, lower: int, none: int}: pairs by head rate against base',
+            'skills.<skill>.case_verdicts': '{verdict: int}: per-case verdicts of every compared pair',
+            'skills.<skill>.alpha': 'float: multiple_comparisons.alpha',
+            'skills.<skill>.family_size': 'int: pooled tests in the run\'s pooled correction family, apart from '
+                                          'multiple_comparisons.family_size',
+            'skills.<skill>.adjusted_p_value': 'float; present when p_value is not None and method is not none',
+            'skills.<skill>.verdict_uncorrected': 'str; present only when the correction changed the pooled '
+                                                  'verdict'},
+        'pooled_verdicts': {'improved': 'exact stratified p < alpha with head above its expectation',
+                            'regressed': 'exact stratified p < alpha with head below its expectation',
+                            'inconclusive': 'otherwise, or no informative case-host pair'},
+        'pooled_exclusions': {'insufficient_trials': 'the case decision has a reason, such as too few valid trials',
+                              'no_variation': 'all passes or all failures in both arms; the pair cannot move the test'},
         'evidence_levels': list(stats.EVIDENCE),
         'interpretation_fields': {
             'verdict': 'the final decision verdict, after any correction', 'evidence': 'one of '

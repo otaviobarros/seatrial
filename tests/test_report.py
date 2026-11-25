@@ -269,5 +269,105 @@ class CostTests(unittest.TestCase):
         self.assertEqual(report.comment(data).count('Total host-reported cost'), 1)
 
 
+def skill_summary(skills, n=10, method='none', looks=None):
+    """A two-arm summary; skills maps a skill to its (base, head) behavior pass counts, one case each."""
+    cases = {}
+    for skill, pairs in skills.items():
+        for index, (base, head, *valid) in enumerate(pairs):
+            valid = valid[0] if valid else n
+            cases[f'{skill}-{index:03d}'] = {
+                'skill': skill, 'assertions': {'behavior': 'rate', 'preserved': 'zero'}, 'primary': 'behavior',
+                'hosts': {'fake': {'arms': {'base': arm(valid, behavior=base), 'head': arm(valid, behavior=head)}}}}
+    data = {'n': n, 'arms': ['base', 'head'], 'cases': cases, 'cost_usd_total': None}
+    if looks:
+        data['looks'] = looks
+    return report.correct(data, method)
+
+
+class PooledReportTests(unittest.TestCase):
+    def test_small_consistent_gains_pool_into_improved_while_cases_stay_undecided(self):
+        data = skill_summary({'demo': [(5, 8)] * 5})
+        self.assertEqual(set(verdicts(data)), {'non-inferior'})
+        pooled = data['skills']['demo']
+        self.assertEqual((pooled['verdict'], pooled['strata'], pooled['family_size']), ('improved', 5, 1))
+        self.assertEqual(pooled['directions'], {'higher': 5, 'lower': 0, 'none': 0})
+        self.assertEqual(pooled['case_verdicts'], {'non-inferior': 5})
+        self.assertEqual((pooled['base'], pooled['head']), ({'passes': 25, 'valid': 50}, {'passes': 40, 'valid': 50}))
+        self.assertLess(pooled['p_value'], 0.01)
+        self.assertNotIn('adjusted_p_value', pooled)
+        json.dumps(data, allow_nan=False)  # Strict JSON: no Infinity or NaN.
+        line = report.pooled_lines(data)[0]
+        self.assertTrue(line.startswith('`demo`: improved across 5 case-host pairs (5 higher); primary passed '
+                                        '25/50 in base and 40/50 in head; odds ratio'), line)
+        for text in (report.markdown(data), report.comment(data)):
+            self.assertIn('`demo`: improved across 5', text)
+        self.assertIn('**Pooled by skill** (reported, not gated)', report.markdown(data))
+        comment = report.comment(data)
+        self.assertEqual(comment.count('`demo`: improved'), 1)  # The collapsed table leaves it out.
+        self.assertLess(comment.index('#### Pooled by skill'), comment.index('<details>'))
+
+    def test_uninformative_and_invalid_cases_are_excluded_and_listed(self):
+        data = skill_summary({'demo': [(5, 8), (10, 10), (0, 0), (2, 4, 5)]})
+        pooled = data['skills']['demo']
+        self.assertEqual(pooled['strata'], 1)
+        self.assertEqual(pooled['excluded'], [{'case': 'demo-001', 'host': 'fake', 'reason': 'no_variation'},
+                                              {'case': 'demo-002', 'host': 'fake', 'reason': 'no_variation'},
+                                              {'case': 'demo-003', 'host': 'fake', 'reason': 'insufficient_trials'}])
+        self.assertEqual(pooled['p_value'], stats.fisher(5, 10, 8, 10))
+        self.assertIn('; 3 excluded.', report.pooled_lines(data)[0])
+        empty = skill_summary({'demo': [(10, 10)]})['skills']['demo']
+        self.assertEqual((empty['verdict'], empty['strata'], empty['p_value'], empty['family_size']),
+                         ('inconclusive', 0, None, 0))
+        self.assertIn('no case can inform', report.pooled_lines(skill_summary({'demo': [(10, 10)]}))[0])
+
+    def test_skills_form_their_own_correction_family(self):
+        pairs = {'demo': [(5, 8)] * 3, 'other': [(5, 8)] * 3, 'flat': [(10, 10)]}
+        raw = skill_summary(pairs)
+        self.assertEqual({k: v['verdict'] for k, v in raw['skills'].items()},
+                         {'demo': 'improved', 'flat': 'inconclusive', 'other': 'improved'})
+        corrected = skill_summary(pairs, method='holm')
+        self.assertEqual(corrected['multiple_comparisons']['family_size'], 6)  # The case-level family is apart.
+        demo = corrected['skills']['demo']
+        self.assertEqual(demo['family_size'], 2)  # `flat` cannot reach significance and stays out.
+        self.assertAlmostEqual(demo['adjusted_p_value'], 2 * demo['p_value'])
+        self.assertEqual((demo['verdict'], demo['verdict_uncorrected']), ('inconclusive', 'improved'))
+        self.assertIn('inconclusive (without correction: improved) across', report.pooled_lines(corrected)[0])
+        self.assertIn('pooled verdicts corrected across 2 skill tests, 2 changed', report.correction_note(corrected))
+        self.assertEqual(skill_summary(pairs, method='bh')['skills']['demo']['family_size'], 2)
+        self.assertIn('adjusted p =', report.pooled_lines(corrected)[0])
+        self.assertNotIn('verdict_uncorrected', report.correct(corrected, 'none')['skills']['demo'])
+
+    def test_odds_ratios_keep_bounds_near_one_and_large_bounds_readable(self):
+        self.assertEqual(report.ratio_text({'estimate': 7.0, 'ci': [1.0267, 47.73]}), '7 (95% CI 1.03–47.7)')
+        self.assertEqual(report.ratio_text({'estimate': 34.2, 'ci': [4.1, 271.6]}), '34.2 (95% CI 4.1–272)')
+        self.assertEqual(report.ratio_text({'estimate': 0.0, 'ci': None}), '0')
+        self.assertEqual(report.ratio_text({'estimate': None, 'ci': None}), 'unbounded')
+
+    def test_each_host_of_a_case_is_its_own_stratum(self):
+        data = skill_summary({'demo': [(5, 8)]})
+        entry = data['cases']['demo-000']
+        entry['hosts']['other'] = json.loads(json.dumps(entry['hosts']['fake']))
+        pooled = report.correct(data, 'none')['skills']['demo']
+        self.assertEqual([(c['case'], c['host']) for c in pooled['cases']], [('demo-000', 'fake'), ('demo-000', 'other')])
+        self.assertEqual(pooled['p_value'], stats.stratified_exact([(5, 10, 8, 10)] * 2))
+
+    def test_the_terminal_names_the_pooled_section_without_markdown(self):
+        text = report.terminal(skill_summary({'demo': [(5, 8)] * 5}))
+        self.assertIn('pooled by skill (reported, not gated): demo: improved across 5', text)
+
+    def test_a_sequential_run_pools_at_the_per_look_threshold(self):
+        data = skill_summary({'demo': [(5, 8)] * 3}, looks=[5, 10])
+        pooled = data['skills']['demo']
+        self.assertEqual(pooled['alpha'], 0.025)
+        self.assertLess(0.025, pooled['p_value'])
+        self.assertEqual(pooled['verdict'], 'inconclusive')
+        self.assertEqual(skill_summary({'demo': [(5, 8)] * 3})['skills']['demo']['verdict'], 'improved')
+
+    def test_summaries_without_skills_or_comparisons_have_no_pooled_lines(self):
+        self.assertEqual(c_summary([(5, 8)])['skills'], {})
+        self.assertEqual(report.pooled_lines({'cases': {}}), [])
+        self.assertNotIn('Pooled', report.markdown(summary(**{'demo-001': comparison(arm(), arm())})))
+
+
 if __name__ == '__main__':
     unittest.main()

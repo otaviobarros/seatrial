@@ -1,0 +1,304 @@
+name: seatrial
+
+# Reusable workflow: compare the skills changed since the base ref against that
+# ref, post the comment Markdown, upload the run directory, and fail on a
+# regression. docs/ci.md documents the inputs, secrets, and lanes.
+
+on:
+  workflow_call:
+    inputs:
+      seatrial-version:
+        description: seatrial version from PyPI, such as 0.4.0; empty installs the latest
+        type: string
+        default: ""
+      seatrial-package:
+        description: pip requirement installed instead of the PyPI version, such as . or a Git URL
+        type: string
+        default: ""
+      python-version:
+        description: Python version for seatrial
+        type: string
+        default: "3.12"
+      runs-on:
+        description: Runner label
+        type: string
+        default: ubuntu-latest
+      working-directory:
+        description: Folder with seatrial.toml, relative to the checkout
+        type: string
+        default: "."
+      setup:
+        description: Shell script that installs the host CLIs, run before sign-in
+        type: string
+        default: ""
+      base-ref:
+        description: Revision to compare against; empty uses origin/ plus the pull request base or the default branch
+        type: string
+        default: ""
+      changed:
+        description: Select only the cases that files changed since base-ref affect (--changed)
+        type: boolean
+        default: true
+      select:
+        description: Extra selectors, such as --skill my-skill or --suite smoke
+        type: string
+        default: ""
+      hosts:
+        description: Space-separated hosts, such as "claude codex"; empty uses each case's hosts
+        type: string
+        default: ""
+      models:
+        description: Space-separated HOST=MODEL pairs passed as --model
+        type: string
+        default: ""
+      n:
+        description: Trials per case, host, and revision; 0 uses run.n from seatrial.toml
+        type: number
+        default: 0
+      sequential:
+        description: Run trials in batches and stop each case once its verdict is clear (--sequential)
+        type: boolean
+        default: true
+      correction:
+        description: Multiple-comparison correction, none, holm, or bh
+        type: string
+        default: holm
+      max-cost-usd:
+        description: Stop scheduling once host-reported cost reaches this total; empty sets no cap
+        type: string
+        default: ""
+      max-minutes:
+        description: Stop scheduling after this many minutes; 0 uses the configured limit
+        type: number
+        default: 0
+      extra-args:
+        description: Further compare options, such as --effort low
+        type: string
+        default: ""
+      dry-run:
+        description: Print the trial plan to the job summary and make no native calls
+        type: boolean
+        default: false
+      comment:
+        description: Post the comment Markdown on the pull request
+        type: boolean
+        default: true
+      retention-days:
+        description: Days to keep the run directory artifact; 0 uses the repository setting
+        type: number
+        default: 14
+      artifact-name:
+        description: Name of the run directory artifact; set a distinct name for each call in one workflow run
+        type: string
+        default: ""
+      env:
+        description: Non-secret NAME=VALUE lines for the host CLIs, such as CLAUDE_CODE_USE_BEDROCK=1 and AWS_REGION=us-east-1
+        type: string
+        default: ""
+      timeout-minutes:
+        description: Job timeout
+        type: number
+        default: 120
+    secrets:
+      ANTHROPIC_API_KEY:
+        description: API key for the claude host
+        required: false
+      OPENAI_API_KEY:
+        description: API key for the codex host
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: Claude Code OAuth token, in place of ANTHROPIC_API_KEY
+        required: false
+      AWS_ACCESS_KEY_ID:
+        description: AWS access key for Claude through Amazon Bedrock
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        description: AWS secret key for Claude through Amazon Bedrock
+        required: false
+      AWS_SESSION_TOKEN:
+        description: AWS session token, for temporary credentials
+        required: false
+      AZURE_OPENAI_API_KEY:
+        description: API key for Codex CLI through Azure OpenAI
+        required: false
+    outputs:
+      exit-code:
+        description: seatrial's exit code; 5 means no case was affected
+        value: ${{ jobs.evaluate.outputs.exit-code }}
+
+# No permissions block: the job takes the caller's token permissions. Commenting
+# needs pull-requests: write; docs/ci.md shows the caller.
+
+jobs:
+  evaluate:
+    name: Evaluate skills
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    outputs:
+      exit-code: ${{ steps.evaluate.outputs.exit-code }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Check out the repository with history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install seatrial
+        working-directory: ${{ github.workspace }}
+        env:
+          VERSION: ${{ inputs.seatrial-version }}
+          PACKAGE: ${{ inputs.seatrial-package }}
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/seatrial-venv"
+          if [ -n "$PACKAGE" ]; then
+            requirement=$PACKAGE
+          elif [ -n "$VERSION" ]; then
+            requirement="seatrial==$VERSION"
+          else
+            requirement=seatrial
+          fi
+          bin="$RUNNER_TEMP/seatrial-venv/bin"
+          [ -d "$bin" ] || bin="$RUNNER_TEMP/seatrial-venv/Scripts"  # Windows
+          "$bin/pip" install --quiet "$requirement"
+          echo "$bin" >> "$GITHUB_PATH"
+          {
+            echo "SEATRIAL_STATE=$RUNNER_TEMP/seatrial-state"
+            echo "SEATRIAL_COMMENT=$RUNNER_TEMP/seatrial.md"
+          } >> "$GITHUB_ENV"
+
+      - name: Set host CLI variables
+        if: inputs.env != ''
+        env:
+          VARIABLES: ${{ inputs.env }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -z "${line//[[:space:]]/}" ] && continue
+            if [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+              echo "::error::env line is not NAME=VALUE: ${line%%=*}"
+              exit 1
+            fi
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$VARIABLES"
+
+      - name: Install host CLIs
+        if: inputs.setup != ''
+        working-directory: ${{ github.workspace }}
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: bash -euo pipefail -c "$SETUP"
+
+      # Claude Code reads ANTHROPIC_API_KEY directly. Codex CLI reads its login
+      # from CODEX_HOME, so write one there from the key.
+      - name: Sign in to Codex CLI
+        if: ${{ !inputs.dry-run }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$OPENAI_API_KEY" ] || ! command -v codex > /dev/null; then
+            exit 0
+          fi
+          export CODEX_HOME="$RUNNER_TEMP/codex-home"
+          mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME"
+          printenv OPENAI_API_KEY | codex login -c 'cli_auth_credentials_store="file"' --with-api-key > /dev/null
+          echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
+
+      - name: Evaluate
+        id: evaluate
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          # A schedule event's payload has no repository; its ref is the default branch.
+          BASE_REF: ${{ inputs.base-ref || format('origin/{0}', github.base_ref || github.event.repository.default_branch || github.ref_name) }}
+          CHANGED: ${{ inputs.changed }}
+          SELECT: ${{ inputs.select }}
+          HOSTS: ${{ inputs.hosts }}
+          MODELS: ${{ inputs.models }}
+          TRIALS: ${{ inputs.n }}
+          SEQUENTIAL: ${{ inputs.sequential }}
+          CORRECTION: ${{ inputs.correction }}
+          MAX_COST_USD: ${{ inputs.max-cost-usd }}
+          MAX_MINUTES: ${{ inputs.max-minutes }}
+          EXTRA_ARGS: ${{ inputs.extra-args }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          # The default bash shell runs with -e; keep going to record seatrial's exit code.
+          set +e -o pipefail
+          # Word-split the list inputs on purpose, across lines too: each word becomes one argument.
+          read -ra select_args -d '' <<< "$SELECT"
+          read -ra extra_args -d '' <<< "$EXTRA_ARGS"
+          args=(compare --base "$BASE_REF" --correction "$CORRECTION" "${select_args[@]}" "${extra_args[@]}")
+          [ "$CHANGED" = true ] && args+=(--changed "$BASE_REF")
+          for host in $HOSTS; do args+=(--host "$host"); done
+          for model in $MODELS; do args+=(--model "$model"); done
+          [ "$TRIALS" != 0 ] && args+=(--n "$TRIALS")
+          [ "$SEQUENTIAL" = true ] && args+=(--sequential)
+          [ -n "$MAX_COST_USD" ] && args+=(--max-cost-usd "$MAX_COST_USD")
+          [ "$MAX_MINUTES" != 0 ] && args+=(--max-minutes "$MAX_MINUTES")
+          echo "seatrial ${args[*]}"
+
+          if [ "$DRY_RUN" = true ]; then
+            seatrial "${args[@]}" --dry-run > "$RUNNER_TEMP/plan.txt"
+            status=$?
+            { echo '### seatrial plan'; echo; echo '```text'; cat "$RUNNER_TEMP/plan.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            seatrial "${args[@]}" --format comment --summary-file "$GITHUB_STEP_SUMMARY" \
+              --fail-on-regression > "$SEATRIAL_COMMENT"
+            status=$?
+          fi
+          echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = 5 ]; then
+            echo "::notice::No case is affected by the changes since $BASE_REF."
+            echo "No seatrial case is affected by the changes since \`$BASE_REF\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # A fork's read-only token cannot comment; the job summary still has the report.
+      - name: Comment on the pull request
+        continue-on-error: true
+        if: >-
+          always() && !inputs.dry-run && inputs.comment
+          && github.event_name == 'pull_request' && steps.evaluate.outputs.exit-code != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -s "$SEATRIAL_COMMENT" ] || exit 0
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$SEATRIAL_COMMENT"
+
+      # upload-artifact skips hidden paths, so copied logins under .homes stay out.
+      - name: Upload the run directory
+        if: always() && !inputs.dry-run && env.SEATRIAL_STATE != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact-name || format('seatrial-run-{0}-{1}', github.run_id, github.run_attempt) }}
+          path: ${{ env.SEATRIAL_STATE }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: ignore
+
+      - name: Fail on regression or error
+        if: always()
+        env:
+          STATUS: ${{ steps.evaluate.outputs.exit-code }}
+        run: |
+          case "$STATUS" in
+            0|5) exit 0 ;;
+            4) echo "::error::seatrial found a regression."; exit 4 ;;
+            1) echo "::error::seatrial stopped early or could not start, such as on a missing host CLI. Read the Evaluate step's log."; exit 1 ;;
+            *) echo "::error::seatrial exited ${STATUS:-without a code}; read the Evaluate step's log."; exit 1 ;;
+          esac

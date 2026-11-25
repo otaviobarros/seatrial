@@ -68,6 +68,44 @@ jobs:
           python -c 'import json; plan = json.load(open("plan.json")); assert plan["count"] > 0, plan'
           python -c 'import pathlib, seatrial.hosts as h; assert any(pathlib.Path(h.__file__).parent.glob("samples/*/*.jsonl"))'
 
+  # Runs the reusable workflow as a caller would, on a sample project, without native calls.
+  seatrial-workflow:
+    name: Reusable workflow dry run
+    uses: ./.github/workflows/seatrial.yml
+    with:
+      seatrial-package: .
+      working-directory: tests/ci-project
+      base-ref: HEAD
+      changed: false
+      models: claude=claude-haiku-5-5
+      n: 3
+      dry-run: true
+
+  # The default --changed path: an unchanged tree affects no case, and exit 5 passes.
+  seatrial-workflow-unchanged:
+    name: Reusable workflow with no affected case
+    uses: ./.github/workflows/seatrial.yml
+    with:
+      seatrial-package: .
+      working-directory: tests/ci-project
+      base-ref: HEAD
+      dry-run: true
+
+  # Both calls pass on 0 and 5, so check that each took the path it names.
+  seatrial-workflow-exit-codes:
+    name: Reusable workflow exit codes
+    needs: [seatrial-workflow, seatrial-workflow-unchanged]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the exit codes
+        env:
+          PLANNED: ${{ needs.seatrial-workflow.outputs.exit-code }}
+          UNCHANGED: ${{ needs.seatrial-workflow-unchanged.outputs.exit-code }}
+        run: |
+          [ "$PLANNED" = 0 ] || { echo "::error::dry run exited $PLANNED, expected 0"; exit 1; }
+          [ "$UNCHANGED" = 5 ] || { echo "::error::unchanged run exited $UNCHANGED, expected 5"; exit 1; }
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

@@ -58,7 +58,204 @@ signed in, and every trial spends that account's quota. Set `--n`,
 `--max-runs`, `--max-minutes`, and `--max-cost-usd` in the job.
 [Hosts](hosts.md) describes each adapter.
 
+## Sign in with an API key
+
+CI has no browser, so sign in with an API key stored as a CI secret, not with a
+subscription login. Expose the key to the seatrial step as an environment
+variable. seatrial passes each adapter's own variables to its trials and drops
+the rest of the environment:
+
+| Host | Secret as | Adapter passes | Extra step |
+|---|---|---|---|
+| `claude` | `ANTHROPIC_API_KEY` | `ANTHROPIC_*`, `CLAUDE_CODE_*`, `AWS_*`, and cloud provider variables | None. Each trial gets a private `CLAUDE_CONFIG_DIR` |
+| `codex` | `OPENAI_API_KEY` | `OPENAI_*`, `AZURE_OPENAI_*` | Write a login file once, before seatrial runs (below) |
+
+Codex CLI reads its login from `CODEX_HOME`, and seatrial copies that login into
+each trial. Create it from the key:
+
+```sh
+export CODEX_HOME="$RUNNER_TEMP/codex-home"   # any private folder
+mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME"
+printenv OPENAI_API_KEY | codex login -c 'cli_auth_credentials_store="file"' --with-api-key
+```
+
+Keep `CODEX_HOME` set for the seatrial step. A proxy or gateway that needs other
+variables, such as `MY_PROXY_TOKEN`, works once you name them in
+[`run.pass_env`](configuration.md). seatrial writes no environment to the run
+directory, but the agent in a trial sees the key and can print it into its
+trace. The run directory is as sensitive as the key: anyone who can download
+the job's artifacts can read it. Keep `set -x` and `env` out of the
+job, or the log shows the key.
+
+Run `seatrial doctor` in the job to check that each host CLI is on `PATH`.
+`doctor` does not test the key; the first trial does, and a rejected key stops
+the run with exit 1.
+
+## Two lanes
+
+Split the cost between a fast check on every pull request and a full check on a
+schedule. Both use `--model HOST=MODEL`, so neither lane changes
+`seatrial.toml`:
+
+| Lane | Trigger | Model | Trials | Selection |
+|---|---|---|---|---|
+| Pull request | Each push to a pull request | A small, cheap model, such as `--model claude=claude-haiku-5-5` | Low `--n`, such as 3, with `--sequential` | `--changed origin/<target>`: only the cases the change affects |
+| Nightly | A schedule on the default branch | The model people use, such as `--model claude=claude-opus-5-5` | The configured `run.n`, or 10 to claim an effect | Every case, compared with the last release tag or a fixed baseline revision |
+
+A cheap model can miss a regression that the full model shows, and the reverse.
+Treat the pull request lane as a smoke check and the nightly lane as the
+evidence. Use `--correction holm` when many cases run, so one lucky case does
+not fail the gate; the reusable workflow below uses it by default.
+[Statistics](statistics.md) explains the corrections and how many trials
+decide a verdict.
+
 ## GitHub Actions
+
+### Reusable workflow
+
+The seatrial repository ships `.github/workflows/seatrial.yml`. It installs
+seatrial, runs your setup script, signs in to Codex CLI from `OPENAI_API_KEY`,
+runs `seatrial compare --changed`, posts the comment, uploads the run
+directory, and sets the job result from seatrial's exit code:
+
+| Exit | Job | Comment |
+|---|---|---|
+| 0 | Passes | Posted |
+| 5, no affected case | Passes | None; the job summary says why |
+| 4, a regression | Fails | Posted |
+| 1, stopped early at `max-cost-usd`, `max-minutes`, a usage limit, or a sign-in failure | Fails | Posted; its first line says the results are partial |
+| 1, could not start, such as on a missing host CLI | Fails | None; read the Evaluate step's log |
+| 2 or 3, a usage or configuration error | Fails | None; read the Evaluate step's log |
+
+Pin the workflow to a release tag or commit SHA, and set `seatrial-version` to
+the same release, so the CLI accepts the options the workflow passes:
+
+```yaml
+name: Skills
+
+on:
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  pull-request:
+    if: github.event_name == 'pull_request'
+    uses: otaviobarros/seatrial/.github/workflows/seatrial.yml@v0.4.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      seatrial-version: 0.4.0
+      setup: npm install -g @anthropic-ai/claude-code
+      hosts: claude
+      models: claude=claude-haiku-5-5
+      n: 3
+      max-cost-usd: "2"
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  nightly:
+    if: github.event_name == 'schedule'
+    uses: otaviobarros/seatrial/.github/workflows/seatrial.yml@v0.4.0
+    permissions:
+      contents: read
+    with:
+      seatrial-version: 0.4.0
+      setup: npm install -g @anthropic-ai/claude-code
+      hosts: claude
+      models: claude=claude-opus-5-5
+      base-ref: v1.2.0
+      changed: false
+      sequential: false
+      n: 10
+      max-cost-usd: "40"
+      retention-days: 30
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+The nightly job compares the default branch with `v1.2.0`, the last release in
+this example. Without `base-ref`, the workflow uses `origin/` plus the pull
+request's target branch, or the default branch on other events. On the default
+branch itself, such as on a schedule, that compares the branch with itself, so
+set `base-ref`.
+
+The nightly lane runs every case 10 times per revision. With more than five
+cases on one host, that exceeds the default `limits.max_runs` of 100, and one
+trial at a time can outlast `limits.max_minutes` and `timeout-minutes`. Raise
+`[limits]` and `run.jobs` in `seatrial.toml` and `timeout-minutes` to fit.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `seatrial-version` | latest | Version from PyPI; match the workflow's tag |
+| `seatrial-package` | none | pip requirement installed instead, such as a Git URL; a relative path resolves against the checkout |
+| `python-version` | `3.12` | Python for seatrial |
+| `runs-on` | `ubuntu-latest` | Runner label |
+| `working-directory` | `.` | Folder with `seatrial.toml` |
+| `setup` | none | Shell script that installs the host CLIs |
+| `base-ref` | `origin/<target>` | Revision passed to `--base` and `--changed` |
+| `changed` | `true` | Add `--changed <base-ref>` |
+| `select` | none | More selectors, such as `--skill my-skill` |
+| `hosts` | each case's hosts | Space-separated hosts, each passed as `--host` |
+| `models` | `[hosts.models]` | Space-separated `HOST=MODEL` pairs, each passed as `--model`; name only selected hosts, or set `hosts`, because a pair for an unselected host is a usage error |
+| `n` | `run.n` | Trials per case, host, and revision; `0` keeps the configured value |
+| `sequential` | `true` | Add `--sequential` |
+| `correction` | `holm` | `--correction`: `none`, `holm`, or `bh` |
+| `max-cost-usd` | no cap | `--max-cost-usd`, as a string |
+| `max-minutes` | `limits.max_minutes` | `--max-minutes`; `0` keeps the configured limit |
+| `extra-args` | none | More `compare` options, such as `--effort low` |
+| `dry-run` | `false` | Write the trial plan to the job summary; make no native calls |
+| `comment` | `true` | Post the comment on the pull request |
+| `retention-days` | `14` | Days to keep the run directory artifact; `0` uses the repository setting |
+| `artifact-name` | `seatrial-run-<run id>-<attempt>` | Run directory artifact name; set a distinct one for each call in one workflow run |
+| `env` | none | Non-secret `NAME=VALUE` lines for the host CLIs, one per line |
+| `timeout-minutes` | `120` | Job timeout |
+
+Every secret is optional; pass the ones your hosts sign in with.
+
+| Secret | Used by |
+|---|---|
+| `ANTHROPIC_API_KEY` | The `claude` host, with an Anthropic API key |
+| `CLAUDE_CODE_OAUTH_TOKEN` | The `claude` host, with a Claude Code OAuth token in place of an API key |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | The `claude` host through Amazon Bedrock |
+| `OPENAI_API_KEY` | The `codex` host; the workflow runs `codex login` with it |
+| `AZURE_OPENAI_API_KEY` | The `codex` host through Azure OpenAI |
+
+A provider also needs settings that are not secret. Put them in `env`; the
+workflow rejects lines that are not `NAME=VALUE`. For Claude through Bedrock:
+
+```yaml
+    with:
+      env: |
+        CLAUDE_CODE_USE_BEDROCK=1
+        AWS_REGION=us-east-1
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+Only `ANTHROPIC_API_KEY` gives each Claude trial a private `CLAUDE_CONFIG_DIR`.
+With the other sign-ins, trials share the runner's Claude configuration, which
+is empty on a fresh hosted runner. Vertex AI needs a credentials file that the
+workflow does not create; use your own steps for it.
+
+The workflow sets `SEATRIAL_STATE` to a temporary folder and uploads it as the
+artifact `seatrial-run-<run id>-<attempt>`, or `artifact-name`. Two calls in
+one workflow run, such as one job for each host, need distinct `artifact-name`
+values, or the second upload fails. `actions/upload-artifact` skips
+hidden paths, so copied logins never reach the artifact. A `run.state_dir` in
+`seatrial.toml` overrides `SEATRIAL_STATE`; remove it, or the artifact is
+empty. The job output `exit-code` holds seatrial's exit code. Each run posts a
+new comment.
+
+The job takes the caller's token permissions. Grant `pull-requests: write` for
+the comment. On a fork's pull request, the token stays read-only and secrets are
+absent, so the comment step fails without failing the job and native trials
+cannot sign in. Run the reusable workflow only for branches in your repository,
+or set `dry-run: true` for forks.
+
+### Your own steps
 
 ```yaml
 permissions:

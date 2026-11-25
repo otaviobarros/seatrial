@@ -118,8 +118,9 @@ def tree_hash(root):
 def skill_tree(plugin, skill):
     """Hash what one skill reads in a mounted plugin: its folder and the shared files, not other skills.
 
-    None for the NONE revision, or when the skill is not in the mount. Mounts from a Git
-    revision and from the worktree hash alike, so the value tracks content, not origin."""
+    None for the NONE revision, or when the skill is not in the mount. The hash covers the
+    mounted files, so a Git revision and a clean worktree at that revision hash alike; an
+    untracked file the worktree mount copies, such as a scratch file, changes it."""
     if plugin is None or not (Path(plugin) / 'skills' / skill).is_dir():
         return None
     files = {path: digest for path, digest in manifest(plugin).items()

@@ -211,8 +211,8 @@ trial at a time can outlast `limits.max_minutes` and `timeout-minutes`. Raise
 | `retention-days` | `14` | Days to keep the run directory artifact; `0` uses the repository setting |
 | `artifact-name` | `seatrial-run-<run id>-<attempt>` | Run directory artifact name; set a distinct one for each call in one workflow run |
 | `history` | `false` | Keep the trend history in the Actions cache and add `seatrial trend` to the job summary |
-| `history-key` | `seatrial-history` | Cache key prefix for the history; give each lane its own |
-| `history-last` | `10` | Runs per case, host, and arm in the job summary's trend |
+| `history-key` | `seatrial-history` | Cache key prefix for the history; give each lane, and each call in one workflow run, its own |
+| `history-last` | `10` | Runs per case, host, and arm in the job summary's trend; `0` shows all |
 | `env` | none | Non-secret `NAME=VALUE` lines for the host CLIs, one per line |
 | `timeout-minutes` | `120` | Job timeout |
 
@@ -270,7 +270,10 @@ key. The run directory artifact holds a copy too.
 Turn it on for the nightly lane, which runs every case on the same baseline and
 model each night. Leave it off for the pull request lane: its rows come from
 branches under review and from a cheaper model, so they would break the series.
-Two lanes that both keep history need distinct `history-key` values.
+Two lanes that both keep history need distinct `history-key` values, and so
+do two calls in one workflow run, such as one job for each host: calls that
+share a key save to the same cache entry, and only the first save keeps its
+rows.
 
 GitHub evicts a cache entry unused for 7 days, and a pull request branch reads
 the default branch's entries but cannot write them. A nightly lane keeps its

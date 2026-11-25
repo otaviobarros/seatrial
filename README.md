@@ -342,7 +342,7 @@ directory: `runs`, `report latest`, and `regrade` show only the current project'
 
 | File | Content |
 |---|---|
-| `run.json` | The run settings and revisions, including `trigger_override`, written before the first trial |
+| `run.json` | The run settings and revisions, including `trigger_override` and `skill_trees` (each arm's skill hashes), written before the first trial |
 | `records.jsonl` | One record per trial, written as each trial ends; `foreign_skills`, `unknown_skills`, and `outside_access` mark trials that used skills from outside the plugin, read a skill whose source the trace cannot show, or named the project path; `trigger` is the trial's trigger mode (`auto` for NONE), and `other_skills` lists other plugin skills it loaded, by resolved path |
 | `summary.json` | Per-case, per-host, per-revision summaries with 95% pass-rate intervals, and verdicts with their `interpretation`; missing when the run was interrupted, until `seatrial regrade` builds `summary-regraded.json` |
 | `trials/<random>/` | The trial project, `session.jsonl` trace, `stderr.txt`, `evidence.json`, `retained.json` |
@@ -396,8 +396,9 @@ seatrial trend --json   # the rows, each with `changes`
 
 Filter with `--case`, `--skill`, `--host`, `--arm` (`run`, `base`, or `head`),
 `--since DATE`, and `--last N`. The skill hash covers the skill's folder and the
-plugin's shared files, not other skills, so editing one skill marks only its own
-cases. A `run` and the arms of a `compare` are separate series. Like `runs`,
+plugin's shared files as mounted, not other skills, so editing one skill marks
+only its own cases. A `WORKTREE` mount copies untracked files too, so a scratch
+file in the skills folder also marks a change. A `run` and the arms of a `compare` are separate series. Like `runs`,
 `trend` shows only the current project's lines when projects share a state
 directory. The trend reports each run's counts; it does not test one run against
 another. To test a change, `compare` the two revisions.

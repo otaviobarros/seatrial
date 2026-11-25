@@ -483,8 +483,8 @@ def record_history(summary, records, work, command):
     """Append the run's rows to the history file; a write failure warns and keeps the run's result."""
     try:
         history.append(history.rows(summary, records, work, command))
-    except OSError as error:
-        print(ui.warn(f'could not append to the trend history: {error}'), file=sys.stderr)
+    except Exception as error:  # Never lose a finished run's result to its history row.
+        print(ui.warn(f'could not append to the trend history: {type(error).__name__}: {error}'), file=sys.stderr)
 
 
 def command_trend(parser, args):
@@ -496,9 +496,11 @@ def command_trend(parser, args):
             parser.error(f'--since {args.since!r}: use a date such as 2026-11-01 or an ISO date-time')
     if args.last is not None and args.last < 1:
         parser.error('--last must be at least 1')
-    found, skipped = history.read(cases=args.case, skills=args.skill, hosts=args.host, arms=args.arm)
-    # Mark changes before the window, so a row's marker compares it with the run before it, shown or not.
+    found, skipped = history.read(cases=args.case, hosts=args.host, arms=args.arm)
+    # Mark changes before the skill and date filters, so a row's marker compares it with the run before it.
     grouped = history.series(found)
+    if args.skill:
+        grouped = {key: [r for r in group if r.get('skill') in args.skill] for key, group in grouped.items()}
     if since:
         grouped = {key: [r for r in group if history.parse_since(r['date']) >= since] for key, group in grouped.items()}
     if args.last:
@@ -595,6 +597,7 @@ def command_schema(parser, args):
                          'futility': 'the remaining trials could not reach a significant result',
                          'max_n': 'the last look was reached'},
         'summary_fields': {
+            'skill_trees': '{arm: {skill: str|None}}: the skill_tree hash of each selected skill as mounted',
             'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, stop_family: int, '
                           'trials_planned: int, trials_run: int, trials_saved: int, trials_skipped: int, '
                           'cases: {id: {host: <decision.sequential>}}}; present for --sequential runs',

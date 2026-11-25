@@ -690,10 +690,6 @@ class RunnerTests(FakeProject, unittest.TestCase):
         self.assertEqual(runner.schedule([demo], ['codex'], ['run'], 3), [])
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class TrendTests(FakeProject, unittest.TestCase):
     """History rows from fake-host runs, and the trend series built from them."""
 
@@ -727,8 +723,8 @@ class TrendTests(FakeProject, unittest.TestCase):
         self.assertEqual(len(trees), 1)
         self.assertRegex(trees.pop(), r'^[0-9a-f]{64}$')
         self.assertEqual(summary['skill_trees']['head'], {'demo': row['skill_tree']})
-        ok, out = self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--host', 'fake', '--dry-run')
-        ok, out = self.cli('regrade', work)
+        self.assertTrue(self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--host', 'fake', '--dry-run')[0])
+        self.assertTrue(self.cli('regrade', work)[0])
         self.assertEqual(len(self.history()), 4)  # Dry runs and regrades add nothing.
 
     def test_trend_marks_a_new_skill_tree_and_a_new_model(self):
@@ -760,6 +756,7 @@ class TrendTests(FakeProject, unittest.TestCase):
         with path.open('a') as handle:
             handle.write(json.dumps({**own, 'root': '/another/project'}) + '\n')
             handle.write('{not json\n')
+            handle.write(json.dumps({'date': own['date'], 'root': own['root']}) + '\n')  # Readable, incomplete.
             handle.write(json.dumps({**own, 'date': '2020-01-01T00:00:00+00:00', 'case_id': 'demo-002'}) + '\n')
         rows = self.trend()
         self.assertEqual([(r['root'], r['case_id']) for r in rows],
@@ -775,3 +772,7 @@ class TrendTests(FakeProject, unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn('no trend history', out)
         self.assertEqual(self.trend(), [])
+
+
+if __name__ == '__main__':
+    unittest.main()

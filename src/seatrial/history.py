@@ -16,6 +16,8 @@ SCHEMA = 1
 # Identity fields whose change `trend` marks, in the order the markers print.
 MARKED = (('skill_tree', 'skill'), ('grader_sha256', 'case'), ('model', 'model'), ('cli_version', 'cli'))
 FORMATS = ('table', 'markdown')
+# Fields trend needs; a row without them is counted as unreadable.
+REQUIRED = ('date', 'root', 'case_id', 'host', 'arm', 'valid', 'primary_passes', 'all_pass')
 
 
 def path():
@@ -91,7 +93,9 @@ def read(root=None, cases=(), skills=(), hosts=(), arms=()):
         try:
             row = json.loads(line)
             parse_since(row['date'])
-        except (ValueError, KeyError, TypeError):
+            if any(key not in row for key in REQUIRED):
+                raise KeyError('missing fields')
+        except (ValueError, KeyError, TypeError, AttributeError):
             skipped += 1
             continue
         if row.get('root') != root or (cases and row.get('case_id') not in cases) or \

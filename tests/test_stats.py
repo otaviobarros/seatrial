@@ -39,6 +39,44 @@ class StatsTests(unittest.TestCase):
         self.assertLess(stats.wilson(7, 10, z=1.0)[1], stats.wilson(7, 10)[1])
         self.assertIsNone(stats.wilson(0, 0))
 
+    def test_rate_difference_matches_newcombe_method_10(self):
+        # Newcombe (1998), Table II, method 10: published as first minus second proportion.
+        published = (((56, 70), (48, 80), 0.0524, 0.3339), ((9, 10), (3, 10), 0.1705, 0.8090),
+                     ((5, 56), (0, 29), -0.0381, 0.1926), ((0, 10), (0, 20), -0.1611, 0.2775),
+                     ((0, 10), (0, 10), -0.2775, 0.2775), ((10, 10), (0, 20), 0.6791, 1.0),
+                     ((10, 10), (0, 10), 0.6075, 1.0))
+        for (c2, n2), (c1, n1), low, high in published:
+            estimate, lo, hi = stats.rate_difference(c1, n1, c2, n2)  # Base first, head second.
+            self.assertAlmostEqual(estimate, c2 / n2 - c1 / n1)
+            self.assertAlmostEqual(lo, low, places=4)
+            self.assertAlmostEqual(hi, high, places=4)
+        # c = 0 and c = n in either arm keep the interval inside [-1, 1] with nonzero width.
+        estimate, lo, hi = stats.rate_difference(10, 10, 0, 10)
+        self.assertEqual(estimate, -1.0)
+        self.assertAlmostEqual(lo, -1.0)
+        self.assertAlmostEqual(hi, -0.6075, places=4)
+        self.assertIsNone(stats.rate_difference(0, 0, 1, 1))
+        self.assertEqual(stats.effect_text(stats.effect(10, 10, 7, 10)), '−30 pp (−60 to +4)')
+        self.assertEqual(stats.effect_text(stats.effect(5, 10, 9, 10)), '+40 pp (−0.2 to +68)')
+        self.assertEqual(stats.effect_text(stats.effect(1, 5, 4, 5)), '+60 pp (−0.03 to +83)')
+        self.assertEqual(stats.effect_text({'estimate': 0.005, 'ci': [-0.005, 0.009]}), '+0.5 pp (−0.5 to +0.9)')
+
+    def test_rank_shift_names_where_head_values_rank(self):
+        self.assertEqual(stats.rank_shift([1, 2], [3, 4]), 'higher')
+        self.assertEqual(stats.rank_shift([3, 4], [1, 2]), 'lower')
+        self.assertEqual(stats.rank_shift([1, 3], [3, 1]), 'none')
+        self.assertIsNone(stats.rank_shift([], [1]))
+
+    def test_decisions_report_the_effect_of_every_assertion(self):
+        decision = stats.decide(ASSERTIONS, 'behavior', arm(behavior=10), arm(behavior=7), 10)
+        self.assertEqual(set(decision['effect']), set(ASSERTIONS))
+        self.assertEqual(decision['effect_primary'], decision['effect']['behavior'])
+        entry = decision['effect_primary']
+        self.assertEqual((entry['level'], entry['metric']), (0.95, 'rate_difference'))
+        self.assertAlmostEqual(entry['estimate'], -0.3)
+        self.assertEqual(decision['effect']['preserved']['estimate'], 0.0)
+        self.assertNotIn('effect', stats.decide(ASSERTIONS, 'behavior', arm(valid=5), arm(), 10))
+
     def test_trials_needed_and_detectable_change(self):
         self.assertEqual(stats.trials_needed(0.6, 0.8), 82)  # Standard two-proportion sample size.
         self.assertEqual(stats.trials_needed(0.8, 0.6), 82)

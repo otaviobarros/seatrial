@@ -52,7 +52,16 @@ and Fisher p-values) and `interpretation`, which reads it for people and tools:
 | `alpha` | The per-test threshold behind `trials_needed`: `multiple_comparisons.alpha` (0.05, or the per-look threshold of a sequential run), divided by `family_size` under a correction |
 | `explanation`, `recommendation` | The same reading as text; the `markdown` and `comment` formats print these |
 
-Every arm summary also has `primary_ci` and `assertion_ci` (`{assertion: [low, high]}`).
+Every arm summary also has `primary_ci` and `assertion_ci` (`{assertion: [low, high]}`),
+and `<metric>_values` and `<metric>_median` for `cost_usd`, `num_turns`,
+`tool_errors`, and `wall_s` over valid trials. A comparison adds `efficiency`:
+per metric, `base_median`, `head_median`, `shift` (`higher`, `lower`, or `none`:
+where head values rank), and the Mann-Whitney `p_value`; `shift` and `p_value`
+are `null` when an arm has no values. `decision.cost` is `cheaper`, `costlier`, or `null`
+and never changes `decision.verdict`. `decision.effect` maps each assertion to
+`{estimate, ci, level, metric}`: head minus base pass rate with its 95% Newcombe
+interval, as fractions; `decision.effect_primary` repeats the primary entry. A
+decision with a `reason` has no effect.
 [Statistics](statistics.md) explains the method.
 
 For a pull request comment, use `--format comment` on `run`, `compare`, or

@@ -540,6 +540,8 @@ def command_schema(parser, args):
                      'auto': 'the prompt is the request alone; the plugin stays mounted'},
         'built_in_assertions': {'skill_triggered': 'the trace shows the case skill; declare it under assertions to use it'},
         'verdicts': ['improved', 'non-inferior', 'regressed', 'inconclusive'],
+        'cost_notes': {'cheaper': 'non-inferior, and head cost is lower with Mann-Whitney p < 0.05',
+                       'costlier': 'any verdict with p-values, and head cost is higher with Mann-Whitney p < 0.05'},
         'corrections': {'none': 'raw Fisher p-values (default)',
                         'holm': 'Holm step-down; controls the family-wise error rate',
                         'bh': 'Benjamini-Hochberg; controls the false discovery rate'},
@@ -564,7 +566,23 @@ def command_schema(parser, args):
                                                                   'and method is not none; equals the raw value '
                                                                   'for a test outside the family',
             'cases.<id>.hosts.<host>.decision.verdict_uncorrected': 'str; present only when the correction '
-                                                                    'changed the verdict'},
+                                                                    'changed the verdict',
+            'cases.<id>.hosts.<host>.decision.effect': '{assertion: {estimate: float, ci: [float, float], '
+                                                       'level: float, metric: str}}; head minus base pass rate '
+                                                       'with its 95% Newcombe interval, as fractions; metric is '
+                                                       'rate_difference; absent when the decision has a reason',
+            'cases.<id>.hosts.<host>.decision.effect_primary': 'the effect entry of the primary assertion; absent '
+                                                               'when the decision has a reason',
+            'cases.<id>.hosts.<host>.decision.cost': 'str | None: one of cost_notes; reported next to the verdict, '
+                                                     'never changes it',
+            'cases.<id>.hosts.<host>.efficiency': '{metric: {base_median: float|None, head_median: float|None, '
+                                                  'shift: higher|lower|none|None, p_value: float|None}} for '
+                                                  'cost_usd, num_turns, tool_errors, and wall_s over valid trials; '
+                                                  'shift is where head values rank and p_value the Mann-Whitney '
+                                                  'test, both None when an arm has no values; present with two arms',
+            'cases.<id>.hosts.<host>.arms.<arm>.<metric>_values': '[number] for each efficiency metric over valid '
+                                                                  'trials that report it',
+            'cases.<id>.hosts.<host>.arms.<arm>.<metric>_median': 'number | None for each efficiency metric'},
         'evidence_levels': list(stats.EVIDENCE),
         'interpretation_fields': {
             'verdict': 'the final decision verdict, after any correction', 'evidence': 'one of '

@@ -50,6 +50,7 @@ OPTIONAL_EVIDENCE_KEYS = {
     'tools': list,            # tool calls in call order, each {"name": str, "input": dict}; stub MCP
                               # calls also carry "server": str
     'mcp_calls': list,        # calls the case's stub MCP servers logged, in log order per server
+    'tool_errors': int,       # tool results the host marked as errors
 }
 
 
@@ -75,6 +76,9 @@ def validate_evidence(evidence):
     if isinstance(evidence.get('tools'), list) and not all(
             isinstance(t.get('server', ''), str) for t in evidence['tools'] if isinstance(t, dict)):
         problems.append('tools server must be a string')
+    if 'tool_errors' in evidence and (isinstance(evidence['tool_errors'], bool) or (
+            isinstance(evidence['tool_errors'], int) and evidence['tool_errors'] < 0)):
+        problems.append('tool_errors must be a count of 0 or more')
     return problems
 
 

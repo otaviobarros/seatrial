@@ -1,6 +1,7 @@
 """Report formats and multiple-comparison correction, built from hand-written summaries; no runs."""
 import json
 import unittest
+from statistics import median
 from unittest import mock
 
 from seatrial import report, stats
@@ -169,6 +170,12 @@ class CommentFormatTests(unittest.TestCase):
         self.assertNotIn('| similar |', text)
         self.assertIn('non-inferior, underpowered', report.terminal(data))
 
+    def test_effect_shows_next_to_the_verdict_in_every_format(self):
+        data = summary(broken=comparison(arm(), arm(behavior=7)))
+        self.assertIn('| −30 pp (−60 to +4) | inconclusive, underpowered |', report.markdown(data))
+        self.assertIn('−30 pp (−60 to +4)', report.terminal(data))
+        self.assertIn('`broken` on fake, primary −30 pp (−60 to +4):', report.comment(data))
+
     def test_single_revision_and_older_summaries_render(self):
         old = arm()
         del old['primary_ci']
@@ -176,6 +183,90 @@ class CommentFormatTests(unittest.TestCase):
         self.assertTrue(text.startswith('- **no verdict** (one revision): 1\n'))
         self.assertIn('| solo | fake | head | 10/10 | 10/10 |', text)
         self.assertNotIn('Needs attention', text)
+
+
+def cost_summary(base_costs, head_costs, head_behavior=10):
+    """A stored two-arm summary whose arms carry per-trial costs; correct() adds the cost note."""
+    def cost_arm(behavior, costs):
+        a = arm(behavior=behavior)
+        a.update(cost_usd_values=costs, cost_usd_median=median(costs) if costs else None)
+        for name in ('num_turns', 'tool_errors', 'wall_s'):
+            a[f'{name}_values'] = []
+        return a
+    base, head = cost_arm(10, base_costs), cost_arm(head_behavior, head_costs)
+    entry = {'assertions': ASSERTIONS, 'primary': 'behavior',
+             'hosts': {'fake': {'arms': {'base': base, 'head': head},
+                                'efficiency': report.efficiency(base, head)}}}
+    data = report.correct({'n': 10, 'arms': ['base', 'head'], 'cases': {'demo': entry}}, 'none')
+    return data, data['cases']['demo']['hosts']['fake']
+
+
+class CostTests(unittest.TestCase):
+    def test_a_significantly_cheaper_non_inferior_head_is_cheaper(self):
+        data, result = cost_summary([0.20] * 10, [0.10] * 10)
+        self.assertEqual(result['decision']['verdict'], 'non-inferior')
+        self.assertEqual(result['decision']['cost'], 'cheaper')
+        self.assertEqual(result['efficiency']['cost_usd']['head_median'], 0.10)
+        self.assertLess(result['efficiency']['cost_usd']['p_value'], 0.05)
+        self.assertIn('Head cost less: median 0.1 against 0.2 USD', result['interpretation']['explanation'])
+        self.assertIn('non-inferior, cheaper', report.markdown(data))
+        self.assertTrue(report.comment(data).startswith('- **non-inferior**: 1 (1 cheaper)\n'))
+
+    def test_costlier_is_a_note_on_any_verdict_and_never_changes_it(self):
+        data, result = cost_summary([0.10] * 10, [0.20] * 10, head_behavior=3)
+        self.assertEqual((result['decision']['verdict'], result['decision']['cost']), ('regressed', 'costlier'))
+        self.assertIn('regressed, costlier', report.verdict_text(result))
+        # A cheaper head that regressed gets no note: cheaper only qualifies non-inferior.
+        _, result = cost_summary([0.20] * 10, [0.10] * 10, head_behavior=3)
+        self.assertEqual((result['decision']['verdict'], result['decision']['cost']), ('regressed', None))
+
+    def test_missing_or_close_costs_add_no_note(self):
+        for base, head in (([], []), ([0.2] * 10, []), ([0.2, 0.1] * 5, [0.1, 0.2] * 5)):
+            data, result = cost_summary(base, head)
+            self.assertIsNone(result['decision']['cost'])
+            self.assertEqual(result['decision']['verdict'], 'non-inferior')
+        self.assertIsNone(result['efficiency']['num_turns']['p_value'])
+        # Summaries written before efficiency metrics have no comparison and no note.
+        old = report.correct(c_summary([(9, 9)]), 'none')
+        self.assertIsNone(old['cases']['demo-000']['hosts']['fake']['decision']['cost'])
+        self.assertIn('| - | - | - | +0 pp', report.markdown(summary(same=comparison(arm(), arm()))))
+
+    def test_arm_summaries_take_efficiency_values_from_valid_trials(self):
+        class Case:
+            assertions, primary = {'behavior': 'rate'}, 'behavior'
+        records = [{'status': 'completed', 'cost_usd': 0.1, 'usage': {'num_turns': 4}, 'tool_errors': 1,
+                    'wall_s': 10.0, 'assertions': [{'id': 'behavior', 'passed': True}], 'pass': True},
+                   {'status': 'completed', 'cost_usd': 0.3, 'usage': None, 'tool_errors': None, 'wall_s': 20.0,
+                    'assertions': [{'id': 'behavior', 'passed': True}], 'pass': True},
+                   {'status': 'timeout', 'cost_usd': 5.0, 'usage': {'num_turns': 99}, 'tool_errors': 9,
+                    'wall_s': 600.0}]
+        s = report.summarize_arm(Case, records)
+        self.assertEqual(s['cost_usd_values'], [0.1, 0.3])
+        self.assertAlmostEqual(s['cost_usd_median'], 0.2)
+        self.assertEqual((s['num_turns_values'], s['tool_errors_values']), ([4], [1]))
+        self.assertEqual(s['wall_s_median'], 15.0)
+        self.assertEqual(s['cost_usd_total'], 5.4)  # The total still counts every trial's spend.
+
+    def test_the_note_follows_the_rank_shift_when_the_medians_disagree(self):
+        # Head costs rank higher overall, yet the head median is lower.
+        data, result = cost_summary([0.10] * 16 + [0.20] * 24, [0.15] * 24 + [0.30] * 16)
+        cost = result['efficiency']['cost_usd']
+        self.assertLess(cost['head_median'], cost['base_median'])
+        self.assertEqual(cost['shift'], 'higher')
+        self.assertLess(cost['p_value'], 0.05)
+        self.assertEqual(result['decision']['cost'], 'costlier')
+
+    def test_summaries_without_a_shift_fall_back_to_the_medians(self):
+        decision = {'verdict': 'non-inferior', 'p_values': {}}
+        comparison = {'cost_usd': {'base_median': 0.2, 'head_median': 0.1, 'p_value': 0.01}}
+        self.assertEqual(report.cost_note(decision, comparison), 'cheaper')
+
+    def test_small_median_costs_stay_visible_in_every_format(self):
+        data, _ = cost_summary([0.004] * 10, [0.002] * 10)
+        data['cost_usd_total'] = 0.06
+        self.assertIn('0.0020', report.terminal(data))
+        self.assertIn('Total host-reported cost: 0.06 USD', report.markdown(data))
+        self.assertEqual(report.comment(data).count('Total host-reported cost'), 1)
 
 
 if __name__ == '__main__':

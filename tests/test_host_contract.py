@@ -390,6 +390,13 @@ class CodexAdapterTests(unittest.TestCase):
         del evidence['tools']
         self.assertEqual(validate_evidence(evidence), [])
 
+    def test_tool_errors_must_be_a_count(self):
+        evidence = codex.parse_stream('/missing')
+        for value, problems in ((0, []), (3, []), (True, ['tool_errors must be a count of 0 or more']),
+                                (-1, ['tool_errors must be a count of 0 or more'])):
+            evidence['tool_errors'] = value
+            self.assertEqual(validate_evidence(evidence), problems)
+
 
 if __name__ == '__main__':
     unittest.main()

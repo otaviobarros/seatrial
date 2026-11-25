@@ -597,7 +597,8 @@ def command_schema(parser, args):
             'skills.<skill>.excluded': '[{case, host, reason}]; reason is one of pooled_exclusions',
             'skills.<skill>.strata': 'int: pairs in the test',
             'skills.<skill>.strata_excluded': 'int: pairs left out, the length of excluded',
-            'skills.<skill>.base': '{passes, valid} over the pairs in the test; head likewise',
+            'skills.<skill>.base': '{passes, valid}: base passes and valid trials over the pairs in the test',
+            'skills.<skill>.head': '{passes, valid}: head passes and valid trials over the pairs in the test',
             'skills.<skill>.shift': 'higher | lower | none | None: head passes against their expectation if the '
                                     'arms behaved the same; the direction of the verdict',
             'skills.<skill>.expected_head_passes': 'float | None',

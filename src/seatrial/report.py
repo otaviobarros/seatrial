@@ -312,14 +312,14 @@ def pool_skills(summary, method, alpha):
 
 
 def ratio_text(odds):
-    """A pooled odds ratio with its interval, for example `4.00 (95% CI 1.65–9.72)`; `unbounded` when no
+    """A pooled odds ratio with its interval, for example `4 (95% CI 1.65–9.72)`; `unbounded` when no
     table has a head failure beside a base pass."""
     if not odds:
         return '-'
     if odds['estimate'] is None:
         return 'unbounded'
 
-    def number(x):  # Three significant digits, never an exponent, so a bound near 1 stays visible.
+    def number(x):  # Three significant digits, so a bound near 1 stays visible; below 0.01, one digit (1e-5).
         return f'{x:.0f}' if x >= 100 else f'{x:.3g}' if x >= 0.01 else f'{x:.1g}'.replace('e-0', 'e-')
 
     text = number(odds['estimate'])
@@ -364,7 +364,7 @@ def correction_note(summary):
     text = (f"verdicts corrected with {info['method']} across {info['family_size']} Fisher tests; "
             f"{changed} changed (marked *)")
     skills = [item for item in (summary.get('skills') or {}).values() if 'adjusted_p_value' in item]
-    if skills:
+    if skills and skills[0]['family_size']:  # An empty family adjusts nothing.
         moved = sum('verdict_uncorrected' in item for item in skills)
         text += (f"; pooled verdicts corrected across {skills[0]['family_size']} skill tests, {moved} changed")
     return text

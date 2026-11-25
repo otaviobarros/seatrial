@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seatrial"
-version = "0.3.0"
+version = "0.4.0"
 description = "Run evaluation cases for agent skills on agent CLIs and compare skill revisions."
 readme = "README.md"
 license = "MIT"

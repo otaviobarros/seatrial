@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/otaviobarros/seatrial/compare/v0.3.0...v0.4.0) (2026-11-25)
+
+
+### Features
+
+* compare cost between arms and report effect sizes ([#49](https://github.com/otaviobarros/seatrial/issues/49)) ([162138d](https://github.com/otaviobarros/seatrial/commit/162138d05bc292db10ca5c42f9331d4511a65f67))
+* correct verdicts for multiple comparisons across cases ([#45](https://github.com/otaviobarros/seatrial/issues/45)) ([6aabf5d](https://github.com/otaviobarros/seatrial/commit/6aabf5dd599d72a1a7a3ef8654ae983bdd80b90c))
+* record tool calls and add trajectory grading helpers ([#38](https://github.com/otaviobarros/seatrial/issues/38)) ([b4ca33f](https://github.com/otaviobarros/seatrial/commit/b4ca33f45680d2a9df74201d122264fd4182a13a))
+* run trials sequentially and stop when the verdict is clear ([#46](https://github.com/otaviobarros/seatrial/issues/46)) ([e410d3b](https://github.com/otaviobarros/seatrial/commit/e410d3b6e8ad0c16c18ffcf53481720213498923))
+* select cases from changed files with --changed REF ([#43](https://github.com/otaviobarros/seatrial/issues/43)) ([466699b](https://github.com/otaviobarros/seatrial/commit/466699b059c410fe1755ed31657e77e112ed2c47))
+* serve stub MCP tools from a case ([#50](https://github.com/otaviobarros/seatrial/issues/50)) ([93c65fb](https://github.com/otaviobarros/seatrial/commit/93c65fb664b93582773622bb09f200cf375e6270))
+* ship a reusable GitHub workflow for pull request and nightly runs ([#48](https://github.com/otaviobarros/seatrial/issues/48)) ([ecaf944](https://github.com/otaviobarros/seatrial/commit/ecaf944b8c9b170ae200bf7129b936144b5531f2))
+* show Wilson intervals, a combined verdict reading, and --format comment ([#44](https://github.com/otaviobarros/seatrial/issues/44)) ([7fa3fd3](https://github.com/otaviobarros/seatrial/commit/7fa3fd3aec82262a30be91160b78c2f58cda1f2b))
+
 ## [0.3.0](https://github.com/otaviobarros/seatrial/compare/v0.2.0...v0.3.0) (2026-11-23)
 
 

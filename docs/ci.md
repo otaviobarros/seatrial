@@ -275,6 +275,11 @@ do two calls in one workflow run, such as one job for each host: calls that
 share a key save to the same cache entry, and only the first save keeps its
 rows.
 
+`trend` keeps only rows whose project root matches the checkout's absolute
+path. Keep the lane on one kind of runner: a runner whose workspace path
+differs, such as a self-hosted or container runner after `ubuntu-latest`,
+starts a new series, and the earlier rows stay in the file but are hidden.
+
 GitHub evicts a cache entry unused for 7 days, and a pull request branch reads
 the default branch's entries but cannot write them. A nightly lane keeps its
 entry in use. To keep the history longer, copy `history.jsonl` from the artifact

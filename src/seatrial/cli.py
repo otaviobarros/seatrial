@@ -654,7 +654,8 @@ def command_schema(parser, args):
         'history_fields': {
             'schema': 'int', 'date': 'str, ISO 8601 UTC, when the run finished', 'root': 'str, project root',
             'project': 'str', 'command': 'run | compare', 'run_dir': 'str', 'stopped_early': 'bool',
-            'case_id': 'str', 'skill': 'str', 'case_version': 'int', 'grader_sha256': 'str', 'host': 'str',
+            'case_id': 'str', 'skill': 'str', 'case_version': 'int', 'grader_sha256': 'str',
+            'fixture_sha256': 'str|None: hash of the case fixture and shared folders', 'host': 'str',
             'arm': 'run | base | head', 'revision': '{name: str, sha: str|None, dirty: bool (WORKTREE only)}',
             'skill_tree': 'str|None: SHA-256 of the mounted skill folder and shared plugin files, other skills '
                           'left out; None for NONE',
@@ -663,8 +664,8 @@ def command_schema(parser, args):
             'primary_ci': '[float, float], 95% Wilson', 'assertion_passes': '{assertion: int}', 'all_pass': 'int',
             'cost_usd_total': 'float|None', 'cost_usd_median': 'float|None',
             'verdict': 'str|None: the comparison verdict, on the head row of a compare',
-            'changes': 'trend --json only: [{field, label, from, to}] for skill_tree, grader_sha256, model, and '
-                       'cli_version values that differ from the previous row of the series'},
+            'changes': 'trend --json only: [{field, label, from, to}] for skill_tree, grader_sha256, '
+                       'fixture_sha256, model, and cli_version values that differ from the previous row of the series'},
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',
                                              'collect', 'release', 'classify') if hasattr(HostAdapter, m)],
         'exit_codes': EXIT,

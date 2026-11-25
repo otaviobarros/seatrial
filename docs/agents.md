@@ -94,7 +94,7 @@ takes fewer.
 
 `seatrial trend --json` prints a list of rows, oldest first within each series
 of case, host, and arm. Each row summarizes one arm of one finished run: the
-identity fields (`skill_tree`, `grader_sha256`, `model`, `cli_version`,
+identity fields (`skill_tree`, `grader_sha256`, `fixture_sha256`, `model`, `cli_version`,
 `revision`), the counts (`trials`, `valid`, `primary_passes`, `primary_ci`,
 `all_pass`), `cost_usd_median`, `verdict`, and `run_dir`. `changes` lists each
 identity field that differs from the previous row of the series as

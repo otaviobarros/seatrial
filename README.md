@@ -129,7 +129,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `runs` | List retained run directories, newest first |
 | `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls; `--correction` to change the run's method |
-| `trend` | Show each case's results across runs, with skill, case, model, and CLI changes marked; `--format markdown` for a job summary |
+| `trend` | Show each case's results across runs, with skill, case, fixture, model, and CLI changes marked; `--format markdown` for a job summary |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
 | `interactive` | Menu-driven mode; also the default with no arguments on a terminal |
@@ -384,7 +384,7 @@ interval, the cost, the verdict, and the run directory. The run directory can be
 deleted; the history line stays.
 
 `seatrial trend` prints one series per case, host, and arm, oldest first. The
-`Changed` column marks a row whose skill, case grader, model, or CLI version
+`Changed` column marks a row whose skill, case grader, case fixture, model, or CLI version
 differs from the run before it, so a drop that follows a model update reads
 differently from one that follows a skill edit:
 
@@ -396,7 +396,7 @@ seatrial trend --json   # the rows, each with `changes`
 
 Filter with `--case`, `--skill`, `--host`, `--arm` (`run`, `base`, or `head`),
 `--since DATE`, and `--last N`. The skill hash covers the skill's folder and the
-plugin's shared files as mounted, not other skills, so editing one skill marks
+plugin's shared files as mounted, including non-skill folders under `skills/`, not other skills, so editing one skill marks
 only its own cases. A `WORKTREE` mount copies untracked files too, so a scratch
 file in the skills folder also marks a change. A `run` and the arms of a `compare` are separate series. Like `runs`,
 `trend` shows only the current project's lines when projects share a state

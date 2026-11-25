@@ -106,5 +106,5 @@ needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/
 7. A grader fix needs no new host calls: `seatrial regrade latest --json`.
 8. To see whether a case got better or worse over weeks, read
    `seatrial trend --json`. A row's `changes` lists what differs from the run
-   before it: `skill_tree`, `grader_sha256`, `model`, or `cli_version`. Name
+   before it: `skill_tree`, `grader_sha256`, `fixture_sha256`, `model`, or `cli_version`. Name
    that change when a pass rate moves right after it.

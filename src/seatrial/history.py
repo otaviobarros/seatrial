@@ -14,7 +14,8 @@ from seatrial import config, stats
 FILENAME = 'history.jsonl'
 SCHEMA = 1
 # Identity fields whose change `trend` marks, in the order the markers print.
-MARKED = (('skill_tree', 'skill'), ('grader_sha256', 'case'), ('model', 'model'), ('cli_version', 'cli'))
+MARKED = (('skill_tree', 'skill'), ('grader_sha256', 'case'), ('fixture_sha256', 'fixture'), ('model', 'model'),
+          ('cli_version', 'cli'))
 FORMATS = ('table', 'markdown')
 # Fields trend needs; a row without them is counted as unreadable.
 REQUIRED = ('date', 'root', 'case_id', 'host', 'arm', 'valid', 'primary_passes', 'all_pass')
@@ -28,7 +29,7 @@ def path():
 def _first(records, key):
     """The value most trials of a group report; trials of one arm share it unless a run was edited."""
     values = [r.get(key) for r in records if r.get(key) is not None]
-    return max(set(values), key=values.count) if values else None
+    return max(values, key=values.count) if values else None  # A tie keeps the first trial's value.
 
 
 def rows(summary, records, work, command, date=None):
@@ -47,7 +48,8 @@ def rows(summary, records, work, command, date=None):
                     'schema': SCHEMA, 'date': date, 'root': summary.get('root'), 'project': summary.get('project'),
                     'command': command, 'run_dir': str(work), 'stopped_early': bool(summary.get('stopped_early')),
                     'case_id': case_id, 'skill': entry['skill'], 'case_version': entry['identity']['version'],
-                    'grader_sha256': entry['identity']['grader_sha256'], 'host': host, 'arm': arm,
+                    'grader_sha256': entry['identity']['grader_sha256'],
+                    'fixture_sha256': entry['identity'].get('fixture_sha256'), 'host': host, 'arm': arm,
                     'revision': {k: revision.get(k) for k in ('name', 'sha', 'dirty') if k in revision},
                     'skill_tree': (trees.get(arm) or {}).get(entry['skill']),
                     'model': _first(group, 'model') or (summary.get('models') or {}).get(host),
@@ -126,7 +128,7 @@ def series(found):
 def _short(value, key):
     if value is None:
         return 'none'
-    return value[:8] if key in ('skill_tree', 'grader_sha256') else str(value)
+    return value[:8] if key in ('skill_tree', 'grader_sha256', 'fixture_sha256') else str(value)
 
 
 def change_text(row):

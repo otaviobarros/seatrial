@@ -211,7 +211,10 @@ def execute(cases, hosts, revisions, options, on_record=None):
         mounts[arm] = None if revision == NONE else work / f'p{position}'
         identities[arm] = mount(revision, mounts[arm])
     skills = sorted({case.skill for case in cases})
-    trees = {arm: {skill: skill_tree(mounts[arm], skill) for skill in skills} for arm in arms}
+    trees = {}
+    for arm in arms:
+        files = manifest(mounts[arm]) if mounts[arm] is not None else {}  # Hash the mount once per arm.
+        trees[arm] = {skill: skill_tree(mounts[arm], skill, files) for skill in skills}
     context = {'work': work, 'adapters': adapters, 'versions': versions, 'mounts': mounts,
                'revisions': identities, 'models': options['models'], 'effort': options['effort'],
                'timeout': options['timeout'] or defaults()['timeout'], 'timeout_override': options['timeout'],

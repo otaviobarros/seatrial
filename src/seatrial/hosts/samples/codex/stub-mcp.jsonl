@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a20fe6-e6c1-7e52-be8a-3a6eb669dfc6"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"mcp_tool_call","server":"tracker","tool":"get_issue","arguments":{"id":"42"},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call","server":"tracker","tool":"get_issue","arguments":{"id":"42"},"result":{"content":[{"type":"text","text":"{\"id\": \"42\", \"state\": \"open\", \"title\": \"Login fails on Safari\"}"}],"structured_content":{"id":"42","title":"Login fails on Safari","state":"open"}},"error":null,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Login fails on Safari"}}
+{"type":"turn.completed","usage":{"input_tokens":46589,"cached_input_tokens":38528,"cache_write_input_tokens":0,"output_tokens":75,"reasoning_output_tokens":0}}

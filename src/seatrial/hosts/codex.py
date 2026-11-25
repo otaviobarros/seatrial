@@ -1,10 +1,11 @@
 """Codex CLI adapter: `codex exec --json` with a private CODEX_HOME and HOME.
 
 Isolation: each trial gets its own CODEX_HOME holding a copy of the login, and its
-own HOME, so user configuration and user-level skills (~/.agents) never load. The
-plugin is copied to `<project>/.agents`, where Codex discovers project skills; the
-NONE revision copies nothing. The
-sandbox writes only inside the project, including its `.git`; `.agents` stays read-only.
+own HOME, so user configuration and user-level skills (~/.agents) never load. The only
+MCP servers are the case's stubs: `--ignore-user-config` skips config.toml, so they come
+in as `-c mcp_servers.<name>` overrides. The plugin is copied to `<project>/.agents`,
+where Codex discovers project skills; the NONE revision copies nothing. The sandbox
+writes only inside the project, including its `.git`; `.agents` stays read-only.
 Delegated sessions do not appear in the parent's JSON stream; their rollouts in the
 private CODEX_HOME are read before it is deleted. The parent's rollout times the
 stream's calls, so delegated calls in `tools` appear where they completed.
@@ -19,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 
+from seatrial import stub_mcp
 from seatrial.ports import HostAdapter, new_evidence
 from seatrial.workspace import state
 
@@ -35,6 +37,7 @@ class Codex(HostAdapter):
     name = 'codex'
     default_model = 'gpt-6-luna'
     supports_no_plugin = True
+    supports_mcp = True
     pass_env = ('OPENAI_*', 'AZURE_OPENAI_*')
 
     def version(self):
@@ -73,8 +76,19 @@ class Codex(HostAdapter):
                 '-c', 'sandbox_workspace_write.exclude_slash_tmp=true',
                 # Workspace-write keeps <project>/.git read-only; a trial must commit and merge.
                 '-c', 'sandbox_workspace_write.writable_roots=' + json.dumps([str(trial.project / '.git')]),
+                *self._stubs(trial),
                 '-C', str(trial.project), '--model', trial.model,
                 '-c', 'model_reasoning_effort=' + json.dumps(trial.effort), trial.prompt]
+
+    @staticmethod
+    def _stubs(trial):
+        flags = []
+        for name, (command, args) in stub_mcp.launch(trial).items():
+            flags += ['-c', f'mcp_servers.{name}.command=' + json.dumps(command),
+                      '-c', f'mcp_servers.{name}.args=' + json.dumps(args),
+                      # With approval_policy never, a tool that needs approval is refused.
+                      '-c', f'mcp_servers.{name}.default_tools_approval_mode="approve"']
+        return flags
 
     def environment(self, trial, base):
         env = super().environment(trial, base)
@@ -91,6 +105,7 @@ class Codex(HostAdapter):
             evidence['delegations'] = max(evidence['delegations'], children['sessions'])
             evidence['commands'] += children['commands']
             evidence['file_changes'] += children['file_changes']
+            evidence['tool_errors'] += children['tool_errors']
             evidence['tools'] = interleave(evidence['tools'], parent_calls(home / 'codex'),
                                            children['tools'])
             evidence['skills'] += children['skills']
@@ -253,9 +268,14 @@ def tool_call(item):
     return None
 
 
+def failed(item):
+    """1 when Codex marks a tool call failed: a nonzero exit, or an MCP error result."""
+    return int(str(item.get('status') or '').lower() == 'failed')
+
+
 def parse_stream(path):
-    """Commands, edits, tool calls, delegations, usage, and errors from a `codex exec --json` stream."""
-    out = new_evidence() | {'tools': []}
+    """Commands, edits, tool calls, failed calls, delegations, usage, and errors from a `codex exec --json` stream."""
+    out = new_evidence() | {'tools': [], 'tool_errors': 0}
     collab, receivers, spawns = False, set(), 0
     path = Path(path)
     if not path.exists():
@@ -275,6 +295,7 @@ def parse_stream(path):
             item = event.get('item') or {}
             if (call := tool_call(item)) is not None:
                 out['tools'].append(call)
+                out['tool_errors'] += failed(item)
             if item.get('type') == 'command_execution':
                 command = str(item.get('command', ''))
                 out['commands'].append(command)
@@ -360,9 +381,9 @@ def interleave(stream, parent, children):
 
 
 def child_traces(codex_home):
-    """Commands, file edits, and timed tool calls from delegated sessions in a private CODEX_HOME."""
+    """Commands, file edits, timed tool calls, and failed calls from delegated sessions in a private CODEX_HOME."""
     commands, changes, sessions, found_reads = [], [], 0, {'skills': [], 'skill_reads': []}
-    calls = []
+    calls, errors = [], 0
     for delegated, lines in _rollouts(codex_home):
         if not delegated:
             continue
@@ -371,6 +392,7 @@ def child_traces(codex_home):
             call = tool_call(item)
             if call is not None:
                 calls.append((stamp, call))
+                errors += failed(item)
             command = item.get('command')
             if command:
                 text = shlex.join(command) if isinstance(command, list) else str(command)
@@ -382,7 +404,7 @@ def child_traces(codex_home):
             elif isinstance(found, list):
                 changes += [str(c.get('path', '')) for c in found if isinstance(c, dict)]
     return {'sessions': sessions, 'commands': commands, 'file_changes': changes, 'tools': calls,
-            **found_reads}
+            'tool_errors': errors, **found_reads}
 
 
 ADAPTER = Codex()

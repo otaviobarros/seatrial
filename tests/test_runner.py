@@ -441,6 +441,15 @@ class RunnerTests(ProjectCase, unittest.TestCase):
             self.cli('compare', '--base', 'NONE', '--case', 'demo-001', '--host', 'fake', '--dry-run')
         self.assertEqual(raised.exception.code, cli.EXIT['usage'])
 
+    def test_stub_mcp_cases_are_rejected_for_a_host_without_stub_support(self):
+        directory = self.cfg.cases / 'demo' / 'demo-001'
+        (directory / 'tracker.json').write_text('{"t": {"responses": [{"result": 1}]}}')
+        toml = directory / 'case.toml'
+        toml.write_text(toml.read_text() + '[[mcp]]\nname = "tracker"\nresponses = "tracker.json"\n')
+        with self.assertRaises(SystemExit) as raised:
+            self.cli('run', '--case', 'demo-001', '--host', 'fake', '--dry-run')
+        self.assertEqual(raised.exception.code, cli.EXIT['usage'])
+
     def test_a_lowercase_none_revision_names_the_reserved_spelling(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):

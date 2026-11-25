@@ -271,7 +271,8 @@ and inconclusive cases, then the full table in a collapsed block. Progress goes
 to stderr, so stdout holds only the Markdown. `--summary-file PATH` also appends
 that Markdown to a file, such as a CI job summary.
 [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
-has recipes for GitHub Actions, GitLab CI, Azure Pipelines, and any other platform.
+has recipes for GitHub Actions, GitLab CI, Azure Pipelines, and any other platform,
+a reusable GitHub workflow, API key sign-in, and pull request and nightly lanes.
 
 ### Many cases at once
 
@@ -379,7 +380,7 @@ retained trial files before you inspect them with tools that write.
 - [Hosts](https://github.com/otaviobarros/seatrial/blob/main/docs/hosts.md): built-in adapters and how to add one.
 - [Using seatrial from an agent](https://github.com/otaviobarros/seatrial/blob/main/docs/agents.md): JSON output, exit codes, and a safe procedure.
 - [Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md): how verdicts, intervals, and trial estimates work, and how to read them.
-- [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md): pull request comments, job summaries, and gates on any platform.
+- [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md): pull request comments, job summaries, gates, API key sign-in, and a reusable GitHub workflow.
 
 ## License
 

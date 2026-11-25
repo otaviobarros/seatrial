@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 import sys
 
-from seatrial import __version__, config, report, runner, setup, stats, ui, workspace
+from seatrial import __version__, config, report, runner, setup, stats, stub_mcp, ui, workspace
 from seatrial import cases as case_index
 from seatrial import hosts as registry
 from seatrial.ports import EVIDENCE_KEYS, OPTIONAL_EVIDENCE_KEYS
@@ -350,6 +350,9 @@ def plan(parser, args, revisions):
                 parser.error(f'{host} supports efforts {adapter.efforts}')
             if NONE in revisions.values() and not adapter.supports_no_plugin:
                 parser.error(f'{host} does not support the NONE revision')
+            stubbed = [c.id for c in chosen if c.mcp and host in c.hosts]
+            if stubbed and not adapter.supports_mcp:
+                parser.error(f'{host} does not support stub MCP servers ([[mcp]] in {", ".join(stubbed)})')
     except ValueError as error:
         parser.error(str(error))
     models = parse_models(parser, args.model, hosts)
@@ -506,7 +509,18 @@ def command_schema(parser, args):
                       'optional': sorted(set(case_index.Case.__dataclass_fields__) - set(case_index.REQUIRED)
                                          - {'path', 'module'}),
                       'suites': list(case_index.SUITES), 'assertion_kinds': list(case_index.KINDS),
-                      'id_pattern': case_index.ID.pattern},
+                      'id_pattern': case_index.ID.pattern,
+                      'mcp': {'name': f'stub server name; pattern {stub_mcp.SERVER_NAME.pattern}; tools appear '
+                                      'as mcp__<name>__<tool>',
+                              'responses': 'path inside the case folder to a response file'}},
+        'mcp_responses': {'<tool name>': {'description': 'str (optional)',
+                                          'input_schema': 'JSON Schema object with "type": "object" (optional)',
+                                          'responses': [{'match': '{input field: regular expression} (optional; '
+                                                                  'first fitting response answers)',
+                                                         'result': 'str, or any JSON value sent as JSON text',
+                                                         'is_error': 'bool (optional)'}]},
+                          'unmatched': 'a call no response fits gets an error result',
+                          'log': '<trial>/mcp/<name>.jsonl, copied into evidence mcp_calls'},
         'case_py': {'build(project)': 'create the project under `project`; return the prompt without the skill '
                                       'invocation',
                     'grade(project, evidence)': 'return {assertion: (passed, note)}; may return '

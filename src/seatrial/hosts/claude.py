@@ -1,7 +1,8 @@
 """Claude Code adapter: `claude -p --output-format stream-json` with an inline plugin.
 
-Isolation: no setting sources, no MCP servers, no session persistence, a sandbox that
-denies network and reads of the evaluated project, and a fixed tool list. Scheduling tools
+Isolation: no setting sources, no MCP servers except the case's stubs, no session
+persistence, a sandbox that denies network and reads of the evaluated project, and a fixed
+tool list that adds only the stubs' tools. Scheduling tools
 (ScheduleWakeup, CronCreate, Monitor) are not offered, so a trial cannot schedule
 extra turns after its report. Background tasks are disabled: an auto-backgrounded
 shell command kept the CLI alive after its final result until the trial timed out. The plugin loads from a mounted copy with --plugin-dir;
@@ -19,7 +20,7 @@ import shutil
 import subprocess
 
 from seatrial.ports import HostAdapter, new_evidence
-from seatrial import config
+from seatrial import config, stub_mcp
 
 TOOLS = 'Read,Write,Edit,Glob,Grep,Skill,Agent,Bash'
 EDIT_TOOLS = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
@@ -32,6 +33,7 @@ class Claude(HostAdapter):
     name = 'claude'
     default_model = 'claude-haiku-5-5'
     supports_no_plugin = True
+    supports_mcp = True
     pass_env = ('ANTHROPIC_*', 'CLAUDE_CODE_*', 'CLAUDE_CONFIG_DIR', 'AWS_*', 'CLOUD_ML_REGION',
                 'GOOGLE_APPLICATION_CREDENTIALS', 'VERTEX_REGION_*')
 
@@ -46,10 +48,13 @@ class Claude(HostAdapter):
         return f'/{config.current().namespace}:{skill}'
 
     def prepare(self, trial):
-        (trial.directory / 'mcp.json').write_text('{"mcpServers":{}}\n')
+        servers = {name: {'type': 'stdio', 'command': command, 'args': args}
+                   for name, (command, args) in stub_mcp.launch(trial).items()}
+        (trial.directory / 'mcp.json').write_text(json.dumps({'mcpServers': servers}) + '\n')
         return trial.plugin
 
     def command(self, trial):
+        allowed = ','.join([TOOLS, *(f"mcp__{stub['name']}" for stub in trial.mcp)])
         settings = {'sandbox': {'enabled': True, 'allowUnsandboxedCommands': False,
                                 'network': {'allowedDomains': []},
                                 'filesystem': {'denyRead': [str(config.current().root)]}}}
@@ -57,7 +62,7 @@ class Claude(HostAdapter):
                    '--setting-sources', '', '--strict-mcp-config',
                    '--mcp-config', str(trial.directory / 'mcp.json'),
                    '--settings', json.dumps(settings), '--permission-mode', 'acceptEdits',
-                   '--permission-prompts', 'none', '--tools', TOOLS, '--allowedTools', TOOLS,
+                   '--permission-prompts', 'none', '--tools', TOOLS, '--allowedTools', allowed,
                    '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
                    '--model', trial.model, '--effort', trial.effort]
         if trial.budget_usd:
@@ -104,14 +109,23 @@ def _relative(path, project):
         return str(path)
 
 
+def _failed_results(event):
+    """Tool results in one user event that the host marked `is_error`."""
+    content = (event.get('message') or {}).get('content')
+    if not isinstance(content, list):
+        return 0
+    return sum(1 for block in content if isinstance(block, dict)
+               and block.get('type') == 'tool_result' and block.get('is_error') is True)
+
+
 def parse_stream(path, project='.', prompt=''):
-    """Commands, edits, tool calls, delegations, usage, and errors from a stream-json trace.
+    """Commands, edits, tool calls, failed tool results, delegations, usage, and errors from a stream-json trace.
 
     The final message is the last `result` event: a run that waits for a background
     subagent emits one result per turn, and only the last one ends the process.
     A prompt that starts with `/<skill>` expands that skill without a Skill call, so the
     skill counts as loaded when the init event lists it as a slash command."""
-    out = new_evidence() | {'tools': []}
+    out = new_evidence() | {'tools': [], 'tool_errors': 0}
     path = Path(path)
     if not path.exists():
         return out
@@ -146,6 +160,8 @@ def parse_stream(path, project='.', prompt=''):
                     out['skills'].append(str(data.get('skill') or data.get('command') or ''))
                 elif name == 'Read' and str(data.get('file_path', '')).endswith('SKILL.md'):
                     out['skills'].append(str(data['file_path']))
+        elif kind == 'user':
+            out['tool_errors'] += _failed_results(event)
         elif kind == 'result':
             results.append(event)
             for model, usage in (event.get('model_usage_since_last_result') or {}).items():

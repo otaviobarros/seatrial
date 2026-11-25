@@ -16,7 +16,7 @@ import subprocess
 import threading
 import time
 
-from seatrial import checks, config, report
+from seatrial import checks, config, report, stub_mcp
 from seatrial.ports import Trial, validate_evidence
 from seatrial.process import launch
 from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained
@@ -136,7 +136,7 @@ def run_trial(job, context):
     trigger = effective_trigger(context['trigger'] or case.trigger, plugin is None)
     prompt = build_prompt(host, case.skill, request, plugin, trigger)
     trial = Trial(directory, project, plugin, prompt, context['models'][host.name],
-                  effort, timeout, context['budget_usd'])
+                  effort, timeout, context['budget_usd'], mcp=case.stubs())
     record = {'case_id': case.id, 'case_version': case.version, 'host': host.name, 'arm': arm,
               'trial_index': job['index'], 'revision': context['revisions'][arm], 'trigger': trigger,
               'cli_version': context['versions'][host.name], 'model': trial.model, 'effort': effort,
@@ -150,7 +150,7 @@ def run_trial(job, context):
         started = datetime.datetime.now(datetime.timezone.utc)
         process = launch(host.command(trial), project, host.environment(trial, os.environ),
                          trial.trace, trial.stderr, trial.timeout)
-        evidence = host.collect(trial)
+        evidence = stub_mcp.attach(trial, host.collect(trial))
     finally:
         record.update(host.release(trial, context['lock']))
     problems = validate_evidence(evidence)

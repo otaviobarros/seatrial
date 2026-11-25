@@ -1,0 +1,4 @@
+{"commands": ["ls /nonexistent-seatrial-dir"], "terminal": true, "status": "completed", "tool_errors": 2,
+ "trial_mcp_log": [{"server": "tracker", "tool": "get_issue", "input": {"id": "7"}, "matched": true, "is_error": true}],
+ "tools": [{"name": "Bash", "input": {"command": "ls /nonexistent-seatrial-dir", "description": "List nonexistent directory once"}},
+           {"name": "mcp__tracker__get_issue", "input": {"id": "7"}, "server": "tracker"}]}

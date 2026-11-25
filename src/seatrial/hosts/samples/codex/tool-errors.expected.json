@@ -1,0 +1,3 @@
+{"commands": ["/bin/zsh -lc 'ls /nonexistent-seatrial-dir'"], "final_message": "DONE", "terminal": true, "status": "completed", "tool_errors": 2,
+ "trial_mcp_log": [{"server": "tracker", "tool": "get_issue", "input": {"id": "7"}, "matched": true, "is_error": true}],
+ "mcp_calls": [{"server": "tracker", "tool": "get_issue", "input": {"id": "7"}, "matched": true, "is_error": true}]}

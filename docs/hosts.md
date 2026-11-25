@@ -47,6 +47,12 @@ trial:
   `prepare` and `command` handle that; otherwise `NONE` is rejected for the host.
   The runner reports every skill a `NONE` trial loads as foreign and marks the
   trial `contaminated`.
+- Load only the stub MCP servers in `trial.mcp`. `stub_mcp.launch(trial)` returns
+  `{name: (command, args)}` for each; allow their tools without approval prompts.
+  Set `supports_mcp = True` once `prepare` and `command` load them; otherwise a case
+  with `[[mcp]]` is rejected for the host.
+  The runner reads the stubs' call logs after `collect`. Name stub tools
+  `mcp__<server>__<tool>` in `tools`, as the built-in adapters do.
 - Build the environment from `HostAdapter.environment`. It passes only `PASS_ENV`
   (`PATH`, `HOME`, locale, proxy, and certificate variables), the adapter's
   `pass_env` patterns, and `[run] pass_env`, and gives Git only repository config and
@@ -72,5 +78,6 @@ trial:
 Record a trace from a real run, remove personal paths, and save it as
 `seatrial/hosts/samples/<name>/<sample>.jsonl` with a `<sample>.expected.json`
 listing evidence values and the expected status. Optional keys: `foreign_skills`,
-`unknown_skills`, `trial_project`, and `trial_plugin` (`null` replays a `NONE`
-trial). `tests/test_host_contract.py` replays every sample.
+`unknown_skills`, `trial_project`, `trial_plugin` (`null` replays a `NONE`
+trial), and `trial_mcp_log` (stub call log entries, which the replay copies into
+`mcp_calls`). `tests/test_host_contract.py` replays every sample.

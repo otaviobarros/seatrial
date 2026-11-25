@@ -1,0 +1,4 @@
+{"commands": [], "final_message": "Login fails on Safari", "terminal": true, "status": "completed", "tool_errors": 0,
+ "trial_mcp_log": [{"server": "tracker", "tool": "get_issue", "input": {"id": "42"}, "matched": true, "is_error": false}],
+ "tools": [{"name": "mcp__tracker__get_issue", "input": {"id": "42"}, "server": "tracker"}],
+ "mcp_calls": [{"server": "tracker", "tool": "get_issue", "input": {"id": "42"}, "matched": true, "is_error": false}]}

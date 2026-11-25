@@ -171,6 +171,7 @@ jobs:
       n: 10
       max-cost-usd: "40"
       retention-days: 30
+      history: true
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -209,6 +210,9 @@ trial at a time can outlast `limits.max_minutes` and `timeout-minutes`. Raise
 | `comment` | `true` | Post the comment on the pull request |
 | `retention-days` | `14` | Days to keep the run directory artifact; `0` uses the repository setting |
 | `artifact-name` | `seatrial-run-<run id>-<attempt>` | Run directory artifact name; set a distinct one for each call in one workflow run |
+| `history` | `false` | Keep the trend history in the Actions cache and add `seatrial trend` to the job summary |
+| `history-key` | `seatrial-history` | Cache key prefix for the history; give each lane its own |
+| `history-last` | `10` | Runs per case, host, and arm in the job summary's trend |
 | `env` | none | Non-secret `NAME=VALUE` lines for the host CLIs, one per line |
 | `timeout-minutes` | `120` | Job timeout |
 
@@ -254,6 +258,28 @@ the comment. On a fork's pull request, the token stays read-only and secrets are
 absent, so the comment step fails without failing the job and native trials
 cannot sign in. Run the reusable workflow only for branches in your repository,
 or set `dry-run: true` for forks.
+
+### Trend history
+
+Each runner starts empty, so the history that `seatrial trend` reads needs a
+place between runs. With `history: true`, the workflow restores
+`history.jsonl` from the Actions cache before the run, appends the run's rows,
+adds the trend table to the job summary, and saves the file under a new cache
+key. The run directory artifact holds a copy too.
+
+Turn it on for the nightly lane, which runs every case on the same baseline and
+model each night. Leave it off for the pull request lane: its rows come from
+branches under review and from a cheaper model, so they would break the series.
+Two lanes that both keep history need distinct `history-key` values.
+
+GitHub evicts a cache entry unused for 7 days, and a pull request branch reads
+the default branch's entries but cannot write them. A nightly lane keeps its
+entry in use. To keep the history longer, copy `history.jsonl` from the artifact
+to storage you control.
+
+On another platform, keep `history.jsonl` from the state directory
+(`SEATRIAL_STATE`, or `run.state_dir`) in that platform's cache, and restore it
+there before the next run.
 
 ### Your own steps
 

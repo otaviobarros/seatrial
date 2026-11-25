@@ -66,6 +66,7 @@ jobs:
           seatrial doctor --no-probe --json
           seatrial run --dry-run --json > plan.json
           python -c 'import json; plan = json.load(open("plan.json")); assert plan["count"] > 0, plan'
+          seatrial trend --json
           python -c 'import pathlib, seatrial.hosts as h; assert any(pathlib.Path(h.__file__).parent.glob("samples/*/*.jsonl"))'
 
   # Runs the reusable workflow as a caller would, on a sample project, without native calls.

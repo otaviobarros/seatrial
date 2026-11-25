@@ -19,7 +19,7 @@ import time
 from seatrial import checks, config, report, stub_mcp
 from seatrial.ports import Trial, validate_evidence
 from seatrial.process import launch
-from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained
+from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained, skill_tree
 
 STOP = ('usage_limit', 'auth_error')
 
@@ -210,13 +210,15 @@ def execute(cases, hosts, revisions, options, on_record=None):
     for position, (arm, revision) in enumerate(revisions.items()):
         mounts[arm] = None if revision == NONE else work / f'p{position}'
         identities[arm] = mount(revision, mounts[arm])
+    skills = sorted({case.skill for case in cases})
+    trees = {arm: {skill: skill_tree(mounts[arm], skill) for skill in skills} for arm in arms}
     context = {'work': work, 'adapters': adapters, 'versions': versions, 'mounts': mounts,
                'revisions': identities, 'models': options['models'], 'effort': options['effort'],
                'timeout': options['timeout'] or defaults()['timeout'], 'timeout_override': options['timeout'],
                'budget_usd': options['budget_usd'], 'trigger': options.get('trigger'), 'lock': threading.Lock()}
     cfg = config.current()
     started = {'created_at': work.name, 'project': context_name(), 'root': str(cfg.root), 'arms': arms,
-               'revisions': identities, 'hosts': hosts, 'cli_versions': versions,
+               'revisions': identities, 'skill_trees': trees, 'hosts': hosts, 'cli_versions': versions,
                'models': {h: options['models'][h] for h in hosts}, 'effort_override': options['effort'],
                'trigger_override': options.get('trigger'),
                'n': options['n'], 'jobs': options['jobs'], 'max_minutes': options['max_minutes'],

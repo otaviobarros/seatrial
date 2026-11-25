@@ -10,6 +10,7 @@
   seatrial runs                 list retained run directories
   seatrial report [RUN_DIR|latest]
   seatrial regrade [RUN_DIR|latest]
+  seatrial trend [selectors]    pass rates of each case across runs, with identity changes marked
   seatrial hosts                list host adapters and CLI versions
   seatrial schema               print the case, evidence, and exit-code contract
 
@@ -23,7 +24,7 @@ import json
 from pathlib import Path
 import sys
 
-from seatrial import __version__, config, report, runner, setup, stats, stub_mcp, ui, workspace
+from seatrial import __version__, config, history, report, runner, setup, stats, stub_mcp, ui, workspace
 from seatrial import cases as case_index
 from seatrial import hosts as registry
 from seatrial.ports import EVIDENCE_KEYS, OPTIONAL_EVIDENCE_KEYS
@@ -163,6 +164,16 @@ def build_parser():
             add_format(sub)
         add_correction(sub, default=None)
         add_json(sub)
+    trend = commands.add_parser('trend', help='Show results of each case across runs, with identity changes marked')
+    trend.add_argument('--case', action='append', default=[], help='Case ID; repeatable')
+    trend.add_argument('--skill', action='append', default=[], help='Skill name; repeatable')
+    trend.add_argument('--host', action='append', default=[], help='Host adapter; repeatable')
+    trend.add_argument('--arm', action='append', default=[], help='Arm: run, base, or head; repeatable')
+    trend.add_argument('--since', metavar='DATE', help='Only rows from DATE on, such as 2026-11-01 (UTC unless given)')
+    trend.add_argument('--last', type=int, default=None, metavar='N', help='Only the last N rows of each series')
+    trend.add_argument('--format', choices=history.FORMATS, default='table',
+                       help='An aligned table, or Markdown for a job summary')
+    add_json(trend)
     hosts = commands.add_parser('hosts', help='List host adapters')
     hosts.add_argument('--no-probe', action='store_true', help='Skip host CLI version calls')
     add_json(hosts)
@@ -395,14 +406,17 @@ def command_trials(parser, args, revisions):
         meta, records, work = runner.execute(chosen, hosts, revisions, options, on_record=progress(args))
     except SystemExit as error:
         return report_error(str(error), 'failed')
-    return publish(args, meta, records, chosen, work)
+    return publish(args, meta, records, chosen, work, command=args.command)
 
 
-def publish(args, meta, records, chosen, work, name='summary.json'):
+def publish(args, meta, records, chosen, work, name='summary.json', command=None):
+    """Write and print the summary. With command, also append the run's rows to the trend history."""
     correction = (getattr(args, 'correction', None) or meta.get('correction')
                   or (meta.get('multiple_comparisons') or {}).get('method') or 'none')
     summary = report.summarize(meta, records, chosen, correction)
     (work / name).write_text(json.dumps(summary, indent=2) + '\n')
+    if command:
+        record_history(summary, records, work, command)
     regressed = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
                  if (r.get('decision') or {}).get('verdict') == 'regressed']
     underpowered = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
@@ -462,6 +476,37 @@ def command_report(parser, args):
         summary = report.correct(summary, args.correction)
     emit(args, {'run_dir': str(work), 'summary': summary}, report.render(summary, args.format))
     append_summary(args, summary)
+    return EXIT['ok']
+
+
+def record_history(summary, records, work, command):
+    """Append the run's rows to the history file; a write failure warns and keeps the run's result."""
+    try:
+        history.append(history.rows(summary, records, work, command))
+    except OSError as error:
+        print(ui.warn(f'could not append to the trend history: {error}'), file=sys.stderr)
+
+
+def command_trend(parser, args):
+    since = None
+    if args.since:
+        try:
+            since = history.parse_since(args.since)
+        except ValueError:
+            parser.error(f'--since {args.since!r}: use a date such as 2026-11-01 or an ISO date-time')
+    if args.last is not None and args.last < 1:
+        parser.error('--last must be at least 1')
+    found, skipped = history.read(cases=args.case, skills=args.skill, hosts=args.host, arms=args.arm)
+    # Mark changes before the window, so a row's marker compares it with the run before it, shown or not.
+    grouped = history.series(found)
+    if since:
+        grouped = {key: [r for r in group if history.parse_since(r['date']) >= since] for key, group in grouped.items()}
+    if args.last:
+        grouped = {key: group[-args.last:] for key, group in grouped.items()}
+    grouped = {key: group for key, group in grouped.items() if group}
+    if skipped:
+        print(ui.warn(f'skipped {ui.count(skipped, "unreadable line")} in {history.path()}'), file=sys.stderr)
+    emit(args, [row for group in grouped.values() for row in group], history.render(grouped, args.format))
     return EXIT['ok']
 
 
@@ -601,6 +646,22 @@ def command_schema(parser, args):
                      'per-look threshold of a sequential run), divided by family_size under a correction',
             'explanation': 'str', 'recommendation': 'str | None'},
         'report_formats': list(report.FORMATS),
+        'history_file': f'<state>/{history.FILENAME}; one JSON row per case, host, and arm of each finished run '
+                        'or compare; `trend` reads the rows whose root is this project',
+        'history_fields': {
+            'schema': 'int', 'date': 'str, ISO 8601 UTC, when the run finished', 'root': 'str, project root',
+            'project': 'str', 'command': 'run | compare', 'run_dir': 'str', 'stopped_early': 'bool',
+            'case_id': 'str', 'skill': 'str', 'case_version': 'int', 'grader_sha256': 'str', 'host': 'str',
+            'arm': 'run | base | head', 'revision': '{name: str, sha: str|None, dirty: bool (WORKTREE only)}',
+            'skill_tree': 'str|None: SHA-256 of the mounted skill folder and shared plugin files, other skills '
+                          'left out; None for NONE',
+            'model': 'str', 'cli_version': 'str', 'effort': 'str|None', 'trigger': 'explicit | auto',
+            'trials': 'int', 'valid': 'int', 'primary': 'str', 'primary_passes': 'int',
+            'primary_ci': '[float, float], 95% Wilson', 'assertion_passes': '{assertion: int}', 'all_pass': 'int',
+            'cost_usd_total': 'float|None', 'cost_usd_median': 'float|None',
+            'verdict': 'str|None: the comparison verdict, on the head row of a compare',
+            'changes': 'trend --json only: [{field, label, from, to}] for skill_tree, grader_sha256, model, and '
+                       'cli_version values that differ from the previous row of the series'},
         'host_adapter_methods': [m for m in ('version', 'invocation', 'prepare', 'command', 'environment',
                                              'collect', 'release', 'classify') if hasattr(HostAdapter, m)],
         'exit_codes': EXIT,
@@ -678,7 +739,8 @@ def main(argv=None):
         return EXIT['config']
     handlers = {'init': command_init, 'doctor': command_doctor, 'list': command_list,
                 'new-case': command_new_case, 'runs': command_runs, 'report': command_report,
-                'regrade': command_regrade, 'hosts': command_hosts, 'schema': command_schema}
+                'regrade': command_regrade, 'hosts': command_hosts, 'schema': command_schema,
+                'trend': command_trend}
     if args.command in handlers:
         return handlers[args.command](parser, args)
     if args.command == 'run':

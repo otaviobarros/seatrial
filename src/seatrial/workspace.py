@@ -115,6 +115,18 @@ def tree_hash(root):
     return hashlib.sha256(json.dumps(manifest(root), sort_keys=True).encode()).hexdigest()
 
 
+def skill_tree(plugin, skill):
+    """Hash what one skill reads in a mounted plugin: its folder and the shared files, not other skills.
+
+    None for the NONE revision, or when the skill is not in the mount. Mounts from a Git
+    revision and from the worktree hash alike, so the value tracks content, not origin."""
+    if plugin is None or not (Path(plugin) / 'skills' / skill).is_dir():
+        return None
+    files = {path: digest for path, digest in manifest(plugin).items()
+             if Path(path).parts[:1] != ('skills',) or Path(path).parts[1:2] == (skill,)}
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+
+
 def resolve(revision):
     """Identify a revision without mounting it: commit sha and skills tree."""
     if revision == NONE:

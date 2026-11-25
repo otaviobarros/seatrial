@@ -129,6 +129,7 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `runs` | List retained run directories, newest first |
 | `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls; `--correction` to change the run's method |
+| `trend` | Show each case's results across runs, with skill, case, model, and CLI changes marked; `--format markdown` for a job summary |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
 | `interactive` | Menu-driven mode; also the default with no arguments on a terminal |
@@ -372,6 +373,34 @@ Only `completed` trials are graded. Other statuses are excluded from pass rates:
 
 `regrade` writes `records-regraded.jsonl` and `summary-regraded.json`. Copy
 retained trial files before you inspect them with tools that write.
+
+### Trend across runs
+
+Each finished `run` or `compare` also appends one line per case, host, and arm
+to `history.jsonl` in the state directory. A dry run or `regrade` adds none. A
+line holds the date, the revision, a hash of the skill as mounted, the case's
+grader hash, the model, the CLI version, the pass counts with the primary 95%
+interval, the cost, the verdict, and the run directory. The run directory can be
+deleted; the history line stays.
+
+`seatrial trend` prints one series per case, host, and arm, oldest first. The
+`Changed` column marks a row whose skill, case grader, model, or CLI version
+differs from the run before it, so a drop that follows a model update reads
+differently from one that follows a skill edit:
+
+```sh
+seatrial trend --skill my-skill --since 2026-11-01
+seatrial trend --last 10 --format markdown >> "$GITHUB_STEP_SUMMARY"
+seatrial trend --json   # the rows, each with `changes`
+```
+
+Filter with `--case`, `--skill`, `--host`, `--arm` (`run`, `base`, or `head`),
+`--since DATE`, and `--last N`. The skill hash covers the skill's folder and the
+plugin's shared files, not other skills, so editing one skill marks only its own
+cases. A `run` and the arms of a `compare` are separate series. Like `runs`,
+`trend` shows only the current project's lines when projects share a state
+directory. The trend reports each run's counts; it does not test one run against
+another. To test a change, `compare` the two revisions.
 
 ## Documentation
 

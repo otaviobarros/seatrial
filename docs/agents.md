@@ -102,6 +102,20 @@ deadline, or stopping error skipped. `seatrial schema --json` lists every key
 under `summary_fields`. `--dry-run` counts the trials at most; the run usually
 takes fewer.
 
+`summary.label` is `a/a` when both arms mounted identical files, `a/b` for two
+different revisions, and `null` for a single-revision run. An A/A run adds
+`summary.aa` (`comparisons`, `noisy` as a list of `"<case> <host>"`, and
+`max_difference`) and, per comparison, `noise`: `difference` (absolute primary
+pass-rate difference), `max_difference` and `max_assertion` (the largest over
+all assertions), `verdict`, and `noisy` (true for `improved` or `regressed`).
+With `--noise-floor`, the summary keeps the reference under `noise_reference`
+and each comparison it covers gets `noise_floor`: `difference` (the largest A/A
+drift), `noisy`, `runs`, `observed` (this run's absolute primary difference),
+and `within` (`observed` at or below `difference`); it is `{stale: true}` alone
+when the case's grader changed since the A/A runs. The noise floor never
+changes `decision.verdict`, the `regressed` list, or exit code 4. An A/A run
+keeps them too: with `--fail-on-regression`, a noisy `regressed` case exits 4.
+
 ## Procedure
 
 1. Run `seatrial doctor --json`. On exit 3, report each check whose `level` is
@@ -117,7 +131,9 @@ takes fewer.
    To measure whether a skill helps at all, compare with `--base NONE`. Text
    reports label that arm `none`; JSON keeps `base` and sets
    `summary.revisions.base.name` to `"NONE"`. To measure whether the agent picks
-   a skill on its own, add `--trigger auto`.
+   a skill on its own, add `--trigger auto`. To measure run-to-run noise,
+   compare a revision with itself (`--base main --head main`) and report the
+   `noisy` cases apart from the verdicts.
 3. Print the plan with `--dry-run --json`. Confirm that `count` fits the task's
    budget before any native call. A selected case that cannot load stops the
    plan with exit 2 and names the case.

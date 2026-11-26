@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import random
 import sys
 import concurrent.futures
 import tempfile
@@ -142,8 +143,85 @@ class RunnerTests(ProjectCase, unittest.TestCase):
                      ['--model', 'other=model']):
             with self.subTest(argv=argv), self.assertRaises(SystemExit):
                 self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--dry-run', *argv)
+        ok, out = self.cli('compare', '--base', 'HEAD', '--head', 'HEAD', '--skill', 'demo', '--dry-run')
+        self.assertTrue(ok, out)  # An A/A run compares a revision with itself.
+
+    def test_identical_arms_label_the_run_a_a_and_report_each_difference(self):
+        ok, out = self.cli('compare', '--base', 'HEAD', '--head', 'HEAD', '--skill', 'demo', '--host', 'fake',
+                           '--n', '3', '--json')
+        self.assertTrue(ok, out)
+        summary = json.loads(out)['summary']
+        self.assertEqual(summary['label'], 'a/a')
+        self.assertEqual(summary['revisions']['base']['files'], summary['revisions']['head']['files'])
+        self.assertEqual(summary['aa'], {'comparisons': 2, 'noisy': [], 'max_difference': 0.0})
+        for case_id in ('demo-001', 'demo-002'):
+            self.assertEqual(summary['cases'][case_id]['hosts']['fake']['noise'],
+                             {'difference': 0.0, 'max_difference': 0.0, 'max_assertion': 'behavior',
+                              'verdict': 'non-inferior', 'noisy': False})
+        ok, out = self.cli('report', json.loads(self.cli('runs', '--json')[1])[0]['path'], '--format', 'markdown')
+        self.assertIn('A/A run: both arms ran the same skills, so every difference is noise; 0 of 2 comparisons '
+                      'noisy; largest primary difference 0 points.', out)
+
+    def test_seeded_random_outcomes_mark_a_noisy_case_and_report_lists_it_first(self):
+        class Coin(Fake):  # Each trial fails with probability 0.5, seeded per arm, case, and trial.
+            counts = {}
+
+            def command(self, trial):
+                key = (trial.plugin.name, trial.prompt)
+                count = self.counts[key] = self.counts.get(key, -1) + 1
+                coin = random.Random(f'106:{trial.plugin.name}:{trial.prompt}:{count}').random()
+                prompt = 'fail ' + trial.prompt if coin < 0.5 else trial.prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        with mock.patch.object(hosts, 'get', lambda name: Coin()):
+            ok, out = self.cli('compare', '--base', 'HEAD', '--head', 'HEAD', '--skill', 'demo', '--host', 'fake',
+                               '--n', '10', '--json')
+        self.assertTrue(ok, out)
+        document = json.loads(out)
+        summary = document['summary']
+        noise = summary['cases']['demo-002']['hosts']['fake']['noise']
+        self.assertEqual((noise['verdict'], noise['noisy'], noise['difference']), ('improved', True, 0.6))
+        self.assertFalse(summary['cases']['demo-001']['hosts']['fake']['noise']['noisy'])
+        self.assertEqual(summary['aa']['noisy'], ['demo-002 fake'])
+        ok, out = self.cli('report', document['run_dir'], '--format', 'markdown')
+        rows = [line for line in out.splitlines() if line.startswith('| demo-')]
+        self.assertTrue(rows[0].startswith('| demo-002 |'), rows)
+        self.assertIn('improved, noisy', rows[1])
+        ok, out = self.cli('report', document['run_dir'], '--format', 'comment')
+        self.assertIn('#### Noisy cases', out)
+        self.assertIn('- **improved** `demo-002` on fake: primary moved 60 points', out)
+        # A comparison read against this A/A run: demo-002 drifted 60 points, so a smaller change is noise.
+        class SkillOnly(Fake):  # Writes the file only when the prompt invokes the skill.
+            def command(self, trial):
+                prompt = trial.prompt if trial.prompt.startswith('/') else 'fail ' + trial.prompt
+                return [sys.executable, '-c', AGENT, str(trial.trace), prompt]
+
+        with mock.patch.object(hosts, 'get', lambda name: SkillOnly()):
+            ok, out = self.cli('compare', '--base', 'NONE', '--skill', 'demo', '--host', 'fake', '--n', '3',
+                               '--noise-floor', document['run_dir'], '--json')
+        self.assertTrue(ok, out)
+        read = json.loads(out)['summary']
+        self.assertEqual(read['label'], 'a/b')
+        reference = read['noise_reference']['cases']['demo-002']['fake']
+        self.assertEqual(reference.pop('grader_sha256'), read['cases']['demo-002']['identity']['grader_sha256'])
+        self.assertEqual(reference, {'difference': 0.6, 'noisy': True, 'runs': 1})
+        floor = read['cases']['demo-002']['hosts']['fake']['noise_floor']
+        self.assertEqual(floor, {'difference': 0.6, 'noisy': True, 'runs': 1, 'observed': 1.0, 'within': False})
+        explanation = read['cases']['demo-002']['hosts']['fake']['interpretation']['explanation']
+        self.assertIn('this 100-point change is beyond that noise floor', explanation)
+        self.assertIn('marked this case noisy', explanation)
+        within = read['cases']['demo-001']['hosts']['fake']['noise_floor']
+        self.assertEqual((within['difference'], within['within']), (0.0, False))
+        # report applies a floor to a stored run once, however often it is asked.
+        run = json.loads(out)['run_dir']
+        for _ in range(2):
+            ok, text = self.cli('report', run, '--noise-floor', document['run_dir'], '--json')
+            self.assertTrue(ok, text)
+            explanation = json.loads(text)['summary']['cases']['demo-002']['hosts']['fake']['interpretation']['explanation']
+            self.assertEqual(explanation.count('noise floor'), 1)
+        # Only an A/A run can serve as a noise floor.
         with self.assertRaises(SystemExit):
-            self.cli('compare', '--base', 'HEAD', '--head', 'HEAD', '--dry-run')
+            self.cli('report', run, '--noise-floor', run)
 
     def test_compare_runs_grades_summarizes_and_regrades(self):
         ok, out = self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--host', 'fake', '--n', '1')
@@ -338,7 +416,8 @@ class RunnerTests(ProjectCase, unittest.TestCase):
             cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
         documented = json.loads(schema.getvalue())['summary_fields']
         for path, shape in documented.items():
-            if 'present for --sequential' in shape or path == 'skills.<skill>.verdict_uncorrected':
+            if any(f'present {when}' in shape for when in ('for --sequential', 'for A/A', 'with --noise-floor')) \
+                    or path == 'skills.<skill>.verdict_uncorrected':
                 continue  # The pooled test below regresses with and without the correction.
             for concrete in concrete_paths(path):
                 node = summary
@@ -428,7 +507,9 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertIn(decision['verdict'], ('non-inferior', 'inconclusive'))
         with contextlib.redirect_stdout(io.StringIO()) as schema:
             cli.main(['--config', str(self.cfg.file), 'schema', '--json'])
-        for path in json.loads(schema.getvalue())['summary_fields']:
+        for path, shape in json.loads(schema.getvalue())['summary_fields'].items():
+            if 'present with --noise-floor' in shape:
+                continue
             for concrete in concrete_paths(path):
                 node = summary
                 for part in concrete.split('.'):

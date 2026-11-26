@@ -14,8 +14,10 @@ from seatrial.ports import PASS_ENV, filter_environment, git_environment
 # Import this seatrial in the child too, even from a source checkout with a relative PYTHONPATH.
 PACKAGE_ROOT = str(Path(seatrial.__file__).resolve().parents[1])
 
-# One shell segment that starts seatrial, directly, through uvx, as a Python module, or in $(...) or `...`.
-SEATRIAL = re.compile(r'(^|[\s/(`])(uvx\s+)?seatrial\s+(?P<rest>.*)|python3?\s+-m\s+seatrial\s+(?P<mod>.*)')
+# One shell segment that starts seatrial: directly, through uvx (also at a pinned version), as a
+# Python module (with interpreter options), or in $(...) or `...`.
+SEATRIAL = re.compile(r'(^|[\s/(`])(uvx\s+)?seatrial(@\S+)?\s+(?P<rest>.*)'
+                      r'|python[\d.]*\s+(-\w+\s+)*-m\s+seatrial\s+(?P<mod>.*)')
 # Options seatrial takes before its command, as in `seatrial --no-color run`.
 GLOBAL_OPTIONS = re.compile(r'^(?:(?:--no-color|--config(?:=|\s+)\S+)\s+)*')
 NATIVE = re.compile(r'^(run|compare)\b')
@@ -119,8 +121,8 @@ for case in cases.discover().values():
                         tools=[{'name': 'Skill', 'input': {'skill': 'greet'}}], tool_errors=0,
                         source_changes=[],
                         git_changed=False, git_changes=[], plugin_changed=False, project_base=None)
-        grades = case.grade(project, evidence)
-        found[case.id] = bool(grades[case.primary][0])
+        passed, note = case.grade(project, evidence)[case.primary]
+        found[case.id] = {'primary': case.primary, 'passed': bool(passed), 'note': str(note)}
     except Exception as error:
         found[case.id] = f'{type(error).__name__}: {error}'
 print(json.dumps(found))
@@ -128,7 +130,10 @@ print(json.dumps(found))
 
 
 def rejects_silent_agent(project):
-    """(passed, note): some greet case's primary assertion fails an agent that never greets."""
+    """(passed, note): every greet case the agent wrote fails an agent that never greets.
+
+    init's smoke case checks `skill-loaded` by design and is left out. new-case's unedited
+    `(False, 'TODO: ...')` placeholder fails every agent, so it detects nothing and does not count."""
     result, note = python_in_copy(project, '-c', PROBE, timeout=120)
     if result is None:
         return False, note
@@ -138,5 +143,18 @@ def rejects_silent_agent(project):
         found = None
     if not isinstance(found, dict):
         return False, (result.stdout + result.stderr)[-300:]
-    rejecting = [case_id for case_id, passed in found.items() if passed is False]
-    return bool(rejecting), json.dumps(found)[:300]
+    verdicts = []
+    for case_id, outcome in sorted(found.items()):
+        if not isinstance(outcome, dict):  # build or grade raised.
+            verdicts.append((case_id, False, outcome))
+        elif outcome['primary'] == 'skill-loaded':
+            continue
+        elif outcome['passed']:
+            verdicts.append((case_id, False, 'passes an agent that never greets'))
+        elif outcome['note'].startswith('TODO'):
+            verdicts.append((case_id, False, "new-case's unedited placeholder fails every agent"))
+        else:
+            verdicts.append((case_id, True, 'rejects an agent that never greets'))
+    passed = bool(verdicts) and all(ok for _, ok, _ in verdicts)
+    note = '; '.join(f'{case_id}: {why}' for case_id, _, why in verdicts)
+    return passed, note[:300] or 'no greet case beyond the skill-loaded template'

@@ -7,4 +7,6 @@ hosts = ["claude"]
 shared = ["../_shared/cli.py"]
 primary = "planned"
 # rate: compared as a pass rate. zero: any failure is a regression.
-assertions = { skill-loaded = "rate", planned = "rate", no-native-run = "zero", preserved = "zero" }
+# no-native-run is a rate: the cheapest model starts a native run now and then with the
+# same skill (1 of 10 base trials in CI), and as zero one such trial reads as regressed.
+assertions = { skill-loaded = "rate", planned = "rate", no-native-run = "rate", preserved = "zero" }

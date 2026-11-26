@@ -52,7 +52,8 @@ class NativeRunTests(unittest.TestCase):
     def test_a_native_run_anywhere_in_the_command_fails(self):
         for command in ('seatrial doctor --json\nseatrial compare --base HEAD --n 3 --json',
                         'seatrial --no-color run --json', 'seatrial --config seatrial.toml compare --base HEAD',
-                        'echo "$(seatrial run --json)"', 'out=`seatrial run --json`'):
+                        'echo "$(seatrial run --json)"', 'out=`seatrial run --json`',
+                        'uvx seatrial@latest compare --base HEAD', 'python3.12 -B -m seatrial run --case greet-001'):
             with self.subTest(command=command):
                 self.assertFalse(cli.no_native_run(evidence(command))[0])
 
@@ -127,6 +128,13 @@ class ListCasesTests(unittest.TestCase):
                         .replace('{ skill-loaded = "rate", preserved = "zero" }', '{ named = "rate" }'))
         self.assertFalse(cli.rejects_silent_agent(self.project)[0])
 
+
+    def test_an_unedited_new_case_does_not_count_beside_a_real_check(self):
+        self.test_a_case_that_checks_the_greeting_rejects_a_silent_agent()
+        self.seatrial('new-case', '--skill', 'greet', '--id', 'greet-002', '--summary', 'Greets.', '--json')
+        passed, note = cli.rejects_silent_agent(self.project)
+        self.assertFalse(passed)
+        self.assertIn('greet-002: new-case', note)
 
 class OnlyChangedTests(unittest.TestCase):
     def test_allowed_paths_pass_and_others_fail(self):

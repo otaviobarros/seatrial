@@ -9,10 +9,12 @@ shared = ["../_shared/cli.py"]
 primary = "rejects-silent-agent"
 
 # rate: compared as a pass rate. zero: any failure is a regression.
+# no-native-run is a rate: the cheapest model starts a native run now and then with the
+# same skill (1 of 10 base trials in CI), and as zero one such trial reads as regressed.
 [assertions]
 skill-loaded = "rate"
 configured = "rate"
 case-loads = "rate"
 rejects-silent-agent = "rate"
 skill-untouched = "zero"
-no-native-run = "zero"
+no-native-run = "rate"

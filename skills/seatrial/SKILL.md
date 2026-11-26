@@ -68,6 +68,8 @@ user asked for it, with a budget the user set or approved.
 3. Measure one revision with `seatrial run`. Measure a skill edit with
    `seatrial compare --base REV`; `--head` defaults to the uncommitted worktree.
    Measure whether a skill helps at all with `--base NONE`: no plugin, no invocation.
+   Measure run-to-run noise with the same revision twice, `--base main --head main`;
+   pass that run to later comparisons with `--noise-floor RUN_DIR`.
    Held-out cases run only with `--holdout`; run them once, after the edit is final.
 4. Exit 1 means finished trials are kept. Report the reason; rerun only with the
    user's approval.
@@ -98,9 +100,13 @@ needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/
    within the user's authorization.
 4. Report trials with a status other than `completed` apart from failures; they
    are not graded.
-5. Report `isolation_warnings`: those trials loaded skills from outside the
+5. When `summary.label` is `a/a`, every difference is noise: report the cases in
+   `summary.aa.noisy` as too unstable to gate on, not as changes. When a
+   comparison has `noise_floor` with `within` true, say the change is no larger
+   than the case drifts with no change.
+6. Report `isolation_warnings`: those trials loaded skills from outside the
    plugin or from an unknown source, or named the project path, so their results
    may not measure the skill.
-6. Read a sample of `session.jsonl` traces under `run_dir/trials/` before you
+7. Read a sample of `session.jsonl` traces under `run_dir/trials/` before you
    explain why a trial failed.
-7. A grader fix needs no new host calls: `seatrial regrade latest --json`.
+8. A grader fix needs no new host calls: `seatrial regrade latest --json`.

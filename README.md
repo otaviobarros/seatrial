@@ -125,9 +125,9 @@ With `--yes` or without a terminal, it uses the detected values. See
 | `list` | List cases; accepts selectors |
 | `new-case --skill S --id NAME-001` | Create a case skeleton; prompts on a terminal |
 | `run [--rev REV]` | Run cases against one skill revision |
-| `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host |
+| `compare --base REV [--head REV]` | Run both revisions, interleaved, and give a verdict per case and host; the same revision twice measures the noise floor |
 | `runs` | List retained run directories, newest first |
-| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method |
+| `report [RUN_DIR\|latest]` | Print a run summary; `--format markdown` for a Markdown table, `--format comment` for a pull request comment or job summary, `--correction` to re-apply a method, `--noise-floor` to read it against an A/A run |
 | `regrade [RUN_DIR\|latest]` | Grade retained trials again with the current case code; no host calls; `--correction` to change the run's method |
 | `hosts` | List host adapters, models, and CLI versions |
 | `schema` | Print the configuration, case, evidence, and exit-code contract |
@@ -211,6 +211,7 @@ and exits 5.
 | `--trigger explicit\|auto`; `auto` sends the request without the skill invocation | case `trigger`, `explicit` | none |
 | `--correction none\|holm\|bh`; adjusts Fisher p-values across the run | `none` | none |
 | `--sequential` with `--looks 5,10`; `compare` only | off; looks every 5 trials up to `--n` | last look at most `max_n` |
+| `--noise-floor RUN_DIR`, repeatable; `compare` and `report` | none | none |
 
 </details>
 
@@ -324,6 +325,28 @@ a case stops as `significant` only when its p-value passes the per-look
 threshold divided by the number of assertions in the run, so the corrected
 verdict keeps the stop. A budget, deadline, or stopping error ends the run
 without judging the unfinished look; those trials count as skipped, not saved.
+
+### Measure the noise floor
+
+Two runs of the same skills never agree exactly. An A/A run measures how far
+they drift:
+
+```sh
+seatrial compare --base main --head main --n 10
+```
+
+When both arms mount identical files, seatrial labels the run `a/a` and
+reports each case's drift, the absolute difference in pass rate between the
+arms. A case where identical arms still gave `improved` or `regressed` is
+`noisy`, and reports list it first: fix it before you gate on it. The usual
+cause is a zero-tolerance assertion that sometimes fails with no change.
+
+`--noise-floor RUN_DIR` on `compare` or `report` then reads each change against
+that drift. Verdicts read `within noise` when the case moved this far with no
+change, and `beyond noise` otherwise; the floor never changes a verdict. An A/A
+run costs as much as a comparison: run it when you add a case or change model
+or host version. [Writing cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#measure-the-noise-floor)
+shows how to use it to choose `n` and assertion kinds.
 
 <p align="center">
   <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, median cost, turns, tool errors, effect sizes, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">

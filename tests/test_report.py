@@ -137,6 +137,55 @@ class CorrectionTests(unittest.TestCase):
         self.assertIn('Verdicts corrected with holm across 5 Fisher tests', text)
 
 
+class NoiseFloorTests(unittest.TestCase):
+    def test_label_compares_the_mounted_files_or_the_git_tree(self):
+        def run(base, head, arms=('base', 'head')):
+            return report.label({'arms': list(arms), 'revisions': {'base': base, 'head': head}})
+        commit = {'name': 'main', 'sha': 'a1', 'tree': 't1', 'files': 'files:f1'}
+        self.assertEqual(run(commit, dict(commit, name='HEAD')), 'a/a')
+        self.assertEqual(run(commit, {'name': 'WORKTREE', 'tree': 'files:f1', 'files': 'files:f1'}), 'a/a')
+        self.assertEqual(run({'name': 'v1', 'tree': 't1'}, {'name': 'v2', 'tree': 't1'}), 'a/a')  # Older summaries.
+        self.assertEqual(run(commit, dict(commit, tree='t2', files='files:f2')), 'a/b')
+        self.assertEqual(run({'name': 'NONE', 'tree': None}, {'name': 'NONE', 'tree': None}), 'a/a')
+        self.assertEqual(run({'name': 'NONE', 'tree': None}, commit), 'a/b')
+        self.assertIsNone(report.label({'arms': ['run'], 'revisions': {'run': commit}}))
+
+    def test_an_a_a_run_measures_drift_and_marks_significant_verdicts_noisy(self):
+        data = c_summary([(9, 9), (9, 2), (5, 3)])
+        data['revisions'] = {'base': {'name': 'main', 'tree': 't'}, 'head': {'name': 'main', 'tree': 't'}}
+        data = report.correct(data, 'none')
+        self.assertEqual(data['label'], 'a/a')
+        noise = {case_id: entry['hosts']['fake']['noise'] for case_id, entry in data['cases'].items()}
+        self.assertEqual([n['verdict'] for n in noise.values()], ['non-inferior', 'regressed', 'inconclusive'])
+        self.assertEqual([n['noisy'] for n in noise.values()], [False, True, False])
+        self.assertEqual(noise['demo-001']['difference'], round(7 / 9, 4))
+        self.assertEqual(data['aa'], {'comparisons': 3, 'noisy': ['demo-001 fake'], 'max_difference': round(7 / 9, 4)})
+        self.assertEqual([case_id for case_id, _ in report.case_order(data)], ['demo-001', 'demo-000', 'demo-002'])
+        # Changing revisions drops the A/A fields on the next correction.
+        data['revisions']['head']['tree'] = 'u'
+        data = report.correct(data, 'none')
+        self.assertEqual(data['label'], 'a/b')
+        self.assertNotIn('aa', data)
+
+    def test_a_reference_reads_each_change_against_the_largest_drift_and_rejects_a_b_runs(self):
+        same = {'base': {'name': 'main', 'tree': 't'}, 'head': {'name': 'main', 'tree': 't'}}
+        first = report.correct(dict(c_summary([(9, 7), (9, 9)]), revisions=same), 'none')
+        second = report.correct(dict(c_summary([(9, 6), (9, 9)]), revisions=same), 'none')
+        reference = report.noise_reference([('one', first), ('two', second)])
+        self.assertEqual(reference['cases']['demo-000']['fake'], {'difference': round(3 / 9, 4), 'noisy': False, 'runs': 2})
+        data = c_summary([(9, 6), (9, 5)])
+        data['noise_reference'] = reference
+        data = report.correct(data, 'none')
+        floors = [entry['hosts']['fake']['noise_floor'] for entry in data['cases'].values()]
+        self.assertEqual([f['within'] for f in floors], [True, False])
+        self.assertIn('within that noise floor', data['cases']['demo-000']['hosts']['fake']['interpretation']['explanation'])
+        self.assertIn(', beyond noise', report.verdict_text(data['cases']['demo-001']['hosts']['fake']))
+        self.assertEqual(report.noise_note(data),
+                         'read against the noise floor of 2 A/A runs: 1 of 2 primary changes within it')
+        with self.assertRaisesRegex(ValueError, 'not an A/A run'):
+            report.noise_reference([('ab', data)])
+
+
 class CommentFormatTests(unittest.TestCase):
     def test_headline_counts_then_attention_in_order_then_details(self):
         text = report.comment(summary(

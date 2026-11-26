@@ -286,6 +286,48 @@ the files in `[cases] identity_files`.
 - Run one native trial on the cheapest model and read the trace before you rely
   on the case.
 
+## Measure the noise floor
+
+An A/A run compares a revision with itself, so every difference it shows is
+noise. Run one when you add a case, change a grader, or change model or host
+CLI version:
+
+```sh
+seatrial compare --base main --head main --case my-skill-001 --n 10
+```
+
+It costs as much as a comparison. seatrial labels the run `a/a`, reports each
+case's drift (the absolute difference in pass rate between the two arms), and
+marks a case `noisy` when identical arms still gave `improved` or `regressed`.
+`seatrial report` lists noisy cases first. [Statistics](statistics.md#noise-floor-aa-runs)
+has the math.
+
+Use the result to choose `n` and assertion kinds:
+
+| A/A result | What it means | What to do |
+|---|---|---|
+| `noisy` from a zero-tolerance assertion | The assertion fails now and then with no change; one flake reads as `regressed` | Fix the flake, or make the assertion a `rate` |
+| `noisy` from a `rate` assertion | A chance result at most 5% of the time, or trials that share state | Run A/A again; if it repeats, look for shared state, rate limits, or a time-dependent grader |
+| Primary drift as large as the change you want to detect | `n` is too small for that change | Raise `n`: the drift shrinks with √n, so four times the trials halve it |
+| 0 drift at 100% or 0% in both arms | The case cannot vary, so it cannot show a gain | Keep it as a regression guard, or make it harder to measure gains |
+
+Keep `zero` for assertions that never fail when the behavior is right, such as
+`preserved`. An assertion that passes 93% of the time gives a false
+`regressed` in about one A/A run in four at `n = 10`. Do not gate CI with
+`--fail-on-regression` on a case an A/A run marked noisy.
+
+To read a later comparison against the floor, pass the A/A run directory that
+`seatrial runs` lists:
+
+```sh
+seatrial compare --base main --noise-floor RUN_DIR
+seatrial report latest --noise-floor RUN_DIR --noise-floor OTHER_RUN_DIR
+```
+
+Each verdict then reads `within noise` or `beyond noise`: a change within the
+floor is one the case made with nothing changed. The floor is advisory and
+never changes a verdict.
+
 ## Scope and preservation
 
 Each prompt defines the scope before the agent starts. The runner records

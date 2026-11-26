@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1191 604" width="1191" height="604" role="img" aria-label="Terminal output of seatrial compare with verdicts per case and host">
-<rect width="1191" height="604" rx="12" fill="#0d1117"/>
-<rect x="0.5" y="0.5" width="1190" height="603" rx="12" fill="none" stroke="#30363d"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1191 642" width="1191" height="642" role="img" aria-label="Terminal output of seatrial compare with verdicts per case and host">
+<rect width="1191" height="642" rx="12" fill="#0d1117"/>
+<rect x="0.5" y="0.5" width="1190" height="641" rx="12" fill="none" stroke="#30363d"/>
 <circle cx="22" cy="20" r="6" fill="#ff5f57"/><circle cx="42" cy="20" r="6" fill="#febc2e"/><circle cx="62" cy="20" r="6" fill="#28c840"/>
 <text x="595.5" y="25" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#8b949e" text-anchor="middle">seatrial compare</text>
 <text x="24" y="52" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#6e7681">$ </tspan><tspan fill="#c9d1d9">seatrial compare --base main --n 10 --max-cost-usd 5</tspan></text>
@@ -30,5 +30,7 @@
 <text x="24" y="508" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#c9d1d9">  is not significant, so this run cannot tell the revisions apart; the 95% intervals overlap. No assertion dropped by more than two trials&#x27; worth.</tspan></text>
 <text x="24" y="527" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#c9d1d9">› keep-tests-001 codex: non-inferior (not significant). `tests-kept` passed 10/10 (72–100%) in base and 10/10 (72–100%) in head; Fisher p = 1.000</tspan></text>
 <text x="24" y="546" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#c9d1d9">  is not significant, so this run cannot tell the revisions apart; the 95% intervals overlap. No assertion dropped by more than two trials&#x27; worth.</tspan></text>
-<text x="24" y="565" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#8b949e">total cost USD 1.50</tspan></text>
+<text x="24" y="565" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#c9d1d9">› pooled by skill (reported, not gated): tidy-files: improved across 2 case-host pairs (2 higher); primary passed 7/20 in base and 19/20 in head;</tspan></text>
+<text x="24" y="584" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#c9d1d9">  odds ratio 41 (95% CI 3.83–439), exact p = 0.000154; 2 excluded.</tspan></text>
+<text x="24" y="603" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" xml:space="preserve"><tspan fill="#8b949e">total cost USD 1.50</tspan></text>
 </svg>

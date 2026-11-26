@@ -115,6 +115,8 @@ and `within` (`observed` at or below `difference`); it is `{stale: true}` alone
 when the case's grader changed since the A/A runs. The noise floor never
 changes `decision.verdict`, the `regressed` list, or exit code 4. An A/A run
 keeps them too: with `--fail-on-regression`, a noisy `regressed` case exits 4.
+`summary.skills` is computed for an A/A run as for any comparison; `noise` and
+`noise_floor` cover case comparisons only.
 
 ## Trend history
 
@@ -161,7 +163,14 @@ do not reset `changes`: a row's marker still compares it with the run before it.
    authorization.
    Then read `summary.skills` for the pooled verdict of each skill, and report
    it as a separate, ungated result.
+   When the run used `--noise-floor`, report each change as `within` or beyond
+   the floor, and report `{stale: true}` floors as not applying. In an A/A run,
+   report the noisy cases, and a pooled verdict other than `inconclusive` as
+   drift across the skill.
 6. Read a sample of traces under `run_dir/trials/` before you claim a behavior.
+7. To explain a change over time, read `seatrial trend --json --case ID` and
+   name the identity field in `changes` that moved with the pass rate. The
+   trend reports counts; it does not test a change.
 
 ## Non-interactive setup
 

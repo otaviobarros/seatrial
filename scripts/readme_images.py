@@ -95,6 +95,37 @@ def how_it_works(t):
     return svg(w, h, '\n'.join(parts), 'How a trial runs: case, mount, agent, evidence, grade, repeated into a summary')
 
 
+def workflow(t):
+    w, h = 960, 330
+    stations = [
+        ('Case', ['One behavior of', 'one skill, in code'], 'new-case'),
+        ('Noise', ['Same skills twice:', 'how far runs drift'], '--head main'),
+        ('Compare', ['Your edit against', 'main, interleaved'], '--base main'),
+        ('Read', ['Case and skill', 'verdicts vs. drift'], '--noise-floor'),
+        ('Gate', ['Affected cases on', 'each pull request'], '--changed'),
+        ('Track', ['Nightly runs, with', 'changes marked'], 'trend'),
+    ]
+    bw, gap, top = 140, 16, 40
+    parts = []
+    for i, (title, lines, code) in enumerate(stations):
+        x = 20 + i * (bw + gap)
+        parts.append(station(x, top, bw, 170, i + 1, title, lines, t, code))
+        if i:
+            parts.append(arrow(x - gap + 3, top + 85, x - 3, top + 85, t))
+    # Steps 3 and 4 repeat for each edit; step 2 repeats when a case, model, or CLI changes.
+    loop_l, loop_r = 20 + 2 * (bw + gap) + bw / 2, 20 + 3 * (bw + gap) + bw / 2
+    parts.append(f'<path d="M{loop_r},212 v20 H{loop_l} v-13" fill="none" stroke="{t["accent"]}" '
+                 'stroke-width="2"/>')
+    parts.append(f'<path d="M{loop_l - 6},{221} L{loop_l},{212} L{loop_l + 6},{221}" fill="none" '
+                 f'stroke="{t["accent"]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>')
+    parts.append(text((loop_l + loop_r) / 2, 250, 'repeat for each skill edit', 13, t['accent'], 600, 'middle'))
+    parts.append(f'<rect x="140" y="270" width="680" height="44" rx="22" fill="{t["accent"]}"/>')
+    parts.append(text(480, 297, 'Measure the noise again when a case, the model, or the CLI changes', 14,
+                      t['chip_text'], 700, 'middle'))
+    parts.append(text(20, 24, 'From first case to CI', 13, t['muted'], 600, extra=' letter-spacing="1.2"'))
+    return svg(w, h, '\n'.join(parts), 'The seatrial workflow: case, noise, compare, read, gate, track')
+
+
 def compare(t):
     w, h = 960, 360
     base, head, n = 4, 10, 10
@@ -205,7 +236,7 @@ def terminal_svg(lines):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, draw in (('how-it-works', how_it_works), ('compare', compare)):
+    for name, draw in (('how-it-works', how_it_works), ('workflow', workflow), ('compare', compare)):
         for theme, palette in THEMES.items():
             (OUT / f'{name}-{theme}.svg').write_text(draw(palette))
     (OUT / 'terminal.svg').write_text(terminal_svg(capture()))

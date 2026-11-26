@@ -8,7 +8,10 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
       "include-component-in-tag": false,
-      "extra-files": [{"type": "generic", "path": "src/seatrial/__init__.py"}]
+      "extra-files": [
+        {"type": "generic", "path": "src/seatrial/__init__.py"},
+        {"type": "generic", "path": "docs/ci.md"}
+      ]
     }
   }
 }

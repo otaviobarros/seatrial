@@ -19,6 +19,30 @@ the effect and cost note under `decision`, and the cost comparison under
 `efficiency`; every report format prints them. The verdict rule never reads the
 intervals or the estimate; they explain the verdict and say what to do next.
 
+## How the pieces fit
+
+One `compare` builds its result in this order. Each step reads the one before
+it, and only the steps marked as gating can change a verdict or an exit code.
+
+| Step | Unit | Reads | Gates | Stored under |
+|---|---|---|---|---|
+| 1. Fisher's test and the verdict rule | Case, host, assertion | Pass counts per arm | Yes: the verdict, and exit 4 with `--fail-on-regression` | `decision` |
+| 2. `--correction holm\|bh` | All Fisher tests in the run | Step 1 p-values | Yes: can turn `improved` or `regressed` into another verdict | `decision.adjusted_p_values`, `verdict_uncorrected`, `multiple_comparisons` |
+| 3. `--sequential` | Case and host, per look | Steps 1 and 2 on the trials so far | Yes, through the per-look threshold that replaces 0.05; stops decided cases early | `decision.sequential`, `sequential` |
+| 4. Intervals, effect, cost note, trials needed | Case and host | Step 1 counts; the trial estimate also uses the threshold from steps 2 and 3 | No | `interpretation`, `decision.effect`, `decision.cost`, `efficiency` |
+| 5. Pooled skill verdict | Skill, across its cases and hosts | Each case's primary counts; corrected as its own family | No | `skills` |
+| 6. A/A label and noise | Case and host | Whether both arms mounted identical files | No | `label`, `aa`, `noise` |
+| 7. `--noise-floor` | Case and host | This run's primary difference against earlier A/A runs | No | `noise_floor`, `noise_reference` |
+| 8. Trend history | Case, host, and arm, across runs | Each finished run's counts and identity hashes | No | `history.jsonl`, read with `seatrial trend` |
+
+Read them in that order too. Start with the case verdicts and their intervals,
+which are the gate. Then read the pooled verdict for each skill, which can find
+a gain too small for any single case to show. Check the noise floor before you
+act on a case verdict. Use the trend to see whether a case moved because of
+the skill or because of a model or CLI update. The steps never cancel each
+other: a pooled `improved` leaves a case `regressed` in place, and
+`within noise` leaves the verdict and the exit code unchanged.
+
 ## Why agent evaluations need this
 
 An agent is not deterministic. The same skill, prompt, and model pass on one run
@@ -344,7 +368,14 @@ For each case and host, an A/A run reports under `noise`:
   marks the case `noisy`.
 
 `summary.aa` counts the comparisons, lists the noisy ones, and keeps the
-largest primary drift. Every report format lists noisy cases first, and the
+largest primary drift.
+
+The pooled skill verdict runs on an A/A run as well, and should be
+`inconclusive`. A pooled `improved` or `regressed` with identical arms means the
+skill's cases drifted together, which often comes from something they share,
+such as a host outage, a rate limit, or a shared grader module. seatrial does
+not mark it `noisy`, and `--noise-floor` covers case verdicts only, so check the
+pooled line of every A/A run yourself. Every report format lists noisy cases first, and the
 comment format adds a **Noisy cases** section.
 
 ### How large the drift is

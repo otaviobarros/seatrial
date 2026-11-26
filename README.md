@@ -68,7 +68,7 @@ in November 2026.
 | Agents | Claude Code and Codex CLIs; others through an adapter | Claude Code | Claude Agent SDK, Codex SDK, OpenCode SDK | Claude Code and Codex CLI as Inspect agents, with any model |
 | Compares | Two Git revisions of your skills, including uncommitted edits, or a revision against no skill | The plugin loaded against no plugin | Skill versions in separate fixture folders, side by side | Models and agents on a task set |
 | Grading | Your Python code over files, Git state, commands, and the final message | Regex, tool use, and file checks, plus model-judged rubrics | Assertions such as skill used, custom JavaScript, plus model-graded | Code or model scorers |
-| Statistics | Fisher exact test per assertion, and a verdict per case and host | Three runs per case by default, mean scores against a threshold | `--repeat`; no significance test | Metrics such as accuracy and standard error |
+| Statistics | Fisher exact test per assertion and a verdict per case and host, with Wilson and effect-size intervals, Holm or Benjamini-Hochberg correction, sequential stopping, a pooled verdict per skill, and an A/A noise floor | Three runs per case by default, mean scores against a threshold | `--repeat`; no significance test | Metrics such as accuracy and standard error |
 | Isolation | Fresh Git project per trial, filtered environment, flags skills from outside the plugin | Fresh home, working folder, and config per run | A `working_dir` per provider | Docker sandbox |
 | Runtime | Python 3.11+ standard library; no dependencies | Built into Claude Code 2.1.269+ | Node and the agent SDK packages | Python packages; Docker for the sandbox |
 
@@ -115,6 +115,62 @@ seatrial                 # interactive mode on a terminal
 On a terminal, `init` asks which folder, namespace, case folder, and hosts to use.
 With `--yes` or without a terminal, it uses the detected values. See
 [configuration](https://github.com/otaviobarros/seatrial/blob/main/docs/configuration.md) for every key.
+
+## Workflow
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/workflow-dark.svg">
+  <img alt="Diagram of the seatrial workflow in six steps: case, noise, compare, read, gate, track. Compare and read repeat for each skill edit; the noise measurement repeats when a case, the model, or the CLI changes." src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/workflow-light.svg">
+</picture>
+
+<details>
+<summary>The six steps in text</summary>
+
+1. **Case.** Write one case per behavior you want the skill to keep or gain,
+   and check it with one trial:
+
+   ```sh
+   seatrial new-case --skill my-skill --id my-skill-001
+   seatrial run --case my-skill-001 --n 1
+   ```
+
+2. **Noise.** Compare the current skills with themselves. The run is labelled
+   `a/a`; a case that still gets `improved` or `regressed` is `noisy`, and
+   needs a fix before you trust its verdicts:
+
+   ```sh
+   seatrial compare --base main --head main --n 10
+   ```
+
+3. **Compare.** Edit the skill, then compare the edit with `main`, reading each
+   change against the A/A run from step 2:
+
+   ```sh
+   seatrial compare --base main --n 10 --noise-floor RUN_DIR
+   ```
+
+4. **Read.** Read each case verdict with its interval and effect, then the
+   pooled verdict of each skill, and whether each change is `within noise` or
+   `beyond noise`. Undecided results say how many trials would decide them.
+   Repeat steps 3 and 4 for each edit.
+5. **Gate.** On each pull request, run only the cases the change affects, on a
+   cheap model, with a correction. With `--sequential`, a clear case stops
+   after 5 trials per revision, and only an unclear one runs to 10:
+
+   ```sh
+   seatrial compare --base origin/main --changed origin/main --n 10 --sequential \
+     --correction holm --format comment --fail-on-regression
+   ```
+
+6. **Track.** Each night, run every case on the model people use and keep the
+   history. `seatrial trend` shows each case's pass rate across runs and marks
+   when the skill, the case, the model, or the CLI changed.
+
+Measure the noise again when you add or change a case, or move to another model
+or CLI version. [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
+has a reusable GitHub workflow for steps 5 and 6.
+
+</details>
 
 ## Commands
 
@@ -237,149 +293,62 @@ and the command exits 1.
 
 Ten trials per revision detect only changes of about 60 percentage points on
 the primary assertion, and none from a 50% pass rate; 30 trials detect about 30
-points. With 3 trials, `improved` is not possible. Report a
-non-significant result as "no detected effect". The report also shows pass^k,
-median lines added, mean wall time, and per-arm medians of host-reported cost,
-turns, and tool errors. Use `--fail-on-regression` to exit 4 on any `regressed`
-verdict.
+points. With 3 trials, `improved` is not possible. Report a non-significant
+result as "no detected effect". Use `--fail-on-regression` to exit 4 on any
+`regressed` verdict; it is the only exit code that reads verdicts.
 
-A `non-inferior` verdict whose head cost is lower with Mann-Whitney p < 0.05
-reads `non-inferior, cheaper`: the change keeps quality and saves money. A head
-cost that is higher with p < 0.05 adds `costlier` to any verdict that has
-p-values. Neither note changes the verdict or the exit code.
+Beside each verdict, the report shows:
 
-Each primary pass count comes with its 95% Wilson interval, for example
-`7/10 (40–89%)`: the range of true pass rates that fit the trials. Wide or
-overlapping intervals mean the run is too small to tell the revisions apart.
-The `Effect` column shows how much the primary pass rate changed, head minus
-base, with its 95% interval, for example `−30 pp (−60 to +4)`. The per-arm
-interval says how precise one pass rate is; the effect interval says which
-changes between the revisions fit the trials. An interval that spans 0 fits no
-change, and its far end shows how large a change the run cannot rule out. At
-10 trials an interval can exclude 0 beside a non-significant verdict, for example
-6/10 against 10/10: `−40 pp (−69 to −4)` with Fisher p = 0.087. The verdict
-follows Fisher.
-`summary.json` stores it as `decision.effect` per assertion and
-`decision.effect_primary`. The effect is reported, never gated.
-Each verdict also comes with a reading: the evidence behind it, why it holds, and,
-when the result is undecided, how many trials per revision would decide it.
-`summary.json` stores the reading as fields under `interpretation`.
-[Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md)
-explains the method and how to read it.
+- **Pass counts with 95% Wilson intervals**, such as `7/10 (40–89%)`: the true
+  pass rates that fit the trials. Wide or overlapping intervals mean the run is
+  too small to tell the revisions apart.
+- **The effect**, head minus base on the primary assertion with its 95%
+  interval, such as `−30 pp (−60 to +4)`. An interval that spans 0 fits no
+  change; its far end is the largest change the run cannot rule out.
+- **A cost note.** `non-inferior, cheaper` when head cost is lower with
+  Mann-Whitney p < 0.05; `costlier` when it is higher. The report also shows
+  pass^k, wall time, and per-arm medians of cost, turns, and tool errors.
+- **A reading**: the evidence behind the verdict and, when the result is
+  undecided, how many trials per revision would decide it. `summary.json`
+  stores it under `interpretation`.
+
+### Beyond one case
+
+Four features read a run as a whole. The correction and the sequential
+threshold can change a verdict; the pooled verdict and the noise floor only add
+a line beside it.
+
+| Option | What it does | Changes verdicts or exit codes |
+|---|---|---|
+| `--correction holm\|bh` | Adjusts the run's Fisher p-values so that false verdicts do not add up as cases grow. `holm` for a CI gate, `bh` to screen many cases | Yes; a changed verdict shows `*` |
+| Pooled skill verdict, always on | Pools each skill's cases and hosts into one exact stratified test on each case's primary assertion, so five small gains that no single case can show add up to one `improved` | No |
+| `--sequential --looks 5,10` | Checks every case after each batch and stops the ones that are decided, so trials go where the result is still open | Only through its stricter per-look threshold, such as 0.025 for two looks |
+| `--noise-floor RUN_DIR` | Reads each change against the drift of an A/A run: `within noise` or `beyond noise` | No |
+
+An A/A run compares a revision with itself, so every difference is noise:
+
+```sh
+seatrial compare --base main --head main --n 10       # labelled a/a; noisy cases listed first
+seatrial compare --base main --noise-floor RUN_DIR    # a later change, read against that drift
+```
+
+A case where identical arms still gave `improved` or `regressed` is `noisy`:
+fix it before you gate on it. A pooled `improved` never cancels a case
+`regressed`; read both. [Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md)
+explains each method, its math, how the methods combine, and how to read the
+results.
 
 `--format comment` on `run`, `compare`, or `report` prints Markdown for a pull
-request comment on any platform: one line per verdict count, then the regressed
-and inconclusive cases, then the full table in a collapsed block. Progress goes
-to stderr, so stdout holds only the Markdown. `--summary-file PATH` also appends
-that Markdown to a file, such as a CI job summary.
-[Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
+request comment on any platform: verdict counts, then noisy cases, the cases
+that need attention, and the pooled verdicts, then the full table in a
+collapsed block. Progress goes to stderr, so stdout holds only the Markdown.
+`--summary-file PATH` also appends that Markdown to a file, such as a CI job
+summary. [Continuous integration](https://github.com/otaviobarros/seatrial/blob/main/docs/ci.md)
 has recipes for GitHub Actions, GitLab CI, Azure Pipelines, and any other platform,
 a reusable GitHub workflow, API key sign-in, and pull request and nightly lanes.
 
-### Many cases at once
-
-Each verdict tests every assertion at p < 0.05. A run with 20 cases and 3
-assertions makes 60 tests, and each test can give a false `regressed` or
-`improved` verdict up to 5% of the time when nothing changed, so false verdicts
-add up as cases grow. `--correction` adjusts the p-values across the run's
-Fisher tests before the verdict rules apply:
-
-| Value | Controls | Choose it when |
-|---|---|---|
-| `none` | Nothing; each test at p < 0.05 (default) | Few cases, or you read verdicts by hand |
-| `holm` | The chance of any false verdict in the run | `--fail-on-regression` gates CI on a small, stable suite |
-| `bh` | The share of false verdicts among the significant ones | Many cases, screening for where to look |
-
-The family leaves out tests that cannot reach p < 0.05 with their pass counts,
-such as 10/10 against 10/10; they keep their raw p-value. Decisions with too
-few valid trials have no p-values and stay outside the family. A new
-zero-tolerance failure stays `regressed` under every method, though its
-p-values still count in the family. A verdict the correction changed shows
-`*`, and `summary.json` keeps
-it as `verdict_uncorrected`. `seatrial report --correction holm` applies a
-method to a stored run without new trials. Cases whose two runs of the same
-revision often disagree need a stricter method, or more trials.
-
-### One verdict per skill
-
-At 10 trials per revision, each case detects only large changes. A skill whose
-five cases each gain a little gets five undecided verdicts, though the edit
-helps. `compare` also pools each skill's cases and hosts into one test on each
-case's primary assertion, an exact stratified form of Fisher's test, and
-reports one verdict per skill: `improved`, `regressed`, or `inconclusive`.
-
-| Cases | Base | Head | p | Verdict |
-|---|---|---|---|---|
-| 5 cases alike | 5/10 | 8/10 | 0.35 | `non-inferior`, underpowered |
-| Pooled | 25/50 | 40/50 | 0.004 | `improved`, odds ratio 4.0 (95% CI 1.6–9.7) |
-
-Each case is compared only inside itself, so an easy case and a hard case never
-mix into one pass rate. Cases with all passes or all failures in both
-revisions cannot inform the test and are listed as excluded. `summary.json`
-stores the result under `skills`, and every report format prints one line per
-skill, marked as pooled and not gated. `--correction` adjusts the pooled tests across skills as a
-family of their own.
-
-The pooled verdict is reported, never gated: the case verdicts and
-`--fail-on-regression` do not change. It assumes the cases share one effect.
-When cases measure different things, a large gain in one can hide a loss in
-another, or opposite effects can cancel; `directions` counts the cases that
-went up, down, or stayed level, and a split means the pooled result describes
-no single case. A pooled `improved` never cancels a case `regressed`.
-[Statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/statistics.md#pooled-skill-verdict)
-has the method and its limits.
-
-### Stop early when the verdict is clear
-
-`compare --sequential --looks 5,10` runs trials in batches. After each look,
-it checks every case and host on all trials so far and stops the ones that are
-decided:
-
-| Stop reason | When |
-|---|---|
-| `zero_tolerance` | A zero-tolerance assertion newly fails |
-| `significant` | A Fisher test passes the per-look threshold |
-| `futility` | Even if the remaining trials all went one way, no Fisher test could pass the threshold |
-| `max_n` | The last look |
-
-Undecided cases get the next batch, so trials go where the result is still
-open. Each look tests at 0.05 divided by the number of looks (0.025 for
-`5,10`), which keeps the chance that a Fisher test gives a false result at or
-below 0.05 across all looks. A case that stops early is judged on its trials so far, but its
-non-inferiority margin stays at the planned `--n`. A `futility` stop gives up
-the trials in which a rare zero-tolerance failure might still have appeared;
-use a fixed `--n` for cases where that matters.
-
-`--correction` applies on top of the per-look threshold. With `holm` or `bh`,
-a case stops as `significant` only when its p-value passes the per-look
-threshold divided by the number of assertions in the run, so the corrected
-verdict keeps the stop. A budget, deadline, or stopping error ends the run
-without judging the unfinished look; those trials count as skipped, not saved.
-
-### Measure the noise floor
-
-Two runs of the same skills never agree exactly. An A/A run measures how far
-they drift:
-
-```sh
-seatrial compare --base main --head main --n 10
-```
-
-When both arms mount identical files, seatrial labels the run `a/a` and
-reports each case's drift, the absolute difference in pass rate between the
-arms. A case where identical arms still gave `improved` or `regressed` is
-`noisy`, and reports list it first: fix it before you gate on it. The usual
-cause is a zero-tolerance assertion that sometimes fails with no change.
-
-`--noise-floor RUN_DIR` on `compare` or `report` then reads each change against
-that drift. Verdicts read `within noise` when the case moved this far with no
-change, and `beyond noise` otherwise; the floor never changes a verdict. An A/A
-run costs as much as a comparison: run it when you add a case or change model
-or host version. [Writing cases](https://github.com/otaviobarros/seatrial/blob/main/docs/cases.md#measure-the-noise-floor)
-shows how to use it to choose `n` and assertion kinds.
-
 <p align="center">
-  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts, pass^k, wall time, median cost, turns, tool errors, effect sizes, and verdicts for two cases on Claude and Codex" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
+  <img alt="Terminal output of seatrial compare: progress lines, then a table of valid trials, pass counts with intervals, pass^k, wall time, median cost, turns, tool errors, effect sizes, and verdicts for two cases on Claude and Codex, the reading of each verdict, and one pooled verdict for the skill" src="https://raw.githubusercontent.com/otaviobarros/seatrial/main/docs/images/terminal.svg" width="880">
 </p>
 
 ## Results
@@ -454,6 +423,9 @@ file in the skills folder also marks a change. A `run` and the arms of a `compar
 `trend` shows only the current project's lines when projects share a state
 directory. The trend reports each run's counts; it does not test one run against
 another. To test a change, `compare` the two revisions.
+Rows from an A/A run show their verdict as `A/A …`, and JSON rows carry
+`label: "a/a"`: that verdict measures noise, not a change. The trend holds case
+results only; pooled skill verdicts stay in each run's `summary.json`.
 
 ## Documentation
 

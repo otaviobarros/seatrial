@@ -301,6 +301,9 @@ def measure_noise(summary, compared):
     """Label the run; for an A/A run, add each comparison's `noise` and the run's `aa` totals."""
     summary['label'] = label(summary)
     summary.pop('aa', None)
+    for entry in summary['cases'].values():  # A run that is no longer A/A keeps no stale drift.
+        for result in entry['hosts'].values():
+            result.pop('noise', None)
     if summary['label'] != 'a/a':
         return
     noisy, differences = [], []
@@ -321,12 +324,15 @@ def noise_reference(runs):
 
     Per case and host: the largest primary difference any run saw, whether any run marked it
     noisy, and how many runs measured it. Raises ValueError for a summary that is not A/A."""
-    cases, sizes = {}, []
+    cases, sizes, models = {}, [], []
     for name, summary in runs:
-        if label(summary) != 'a/a':
-            raise ValueError(f'{name} is not an A/A run: its arms ran different skills; '
+        kind = label(summary)
+        if kind != 'a/a':
+            why = 'its arms ran different skills' if kind == 'a/b' else 'it ran one revision'
+            raise ValueError(f'{name} is not an A/A run: {why}; '
                              'measure the noise floor with `seatrial compare --base REV --head REV`')
         sizes.append(summary.get('n'))
+        models.append(summary.get('models'))
         for case_id, entry in summary['cases'].items():
             for host, result in entry['hosts'].items():
                 if not result.get('decision'):
@@ -337,7 +343,7 @@ def noise_reference(runs):
                 slot = cases.setdefault(case_id, {}).setdefault(host, {'difference': 0.0, 'noisy': False, 'runs': 0})
                 slot.update(difference=max(slot['difference'], found['difference']),
                             noisy=slot['noisy'] or found['noisy'], runs=slot['runs'] + 1)
-    return {'runs': [name for name, _ in runs], 'n': sizes, 'cases': cases}
+    return {'runs': [name for name, _ in runs], 'n': sizes, 'models': models, 'cases': cases}
 
 
 def read_against_noise(summary):
@@ -394,9 +400,17 @@ def noise_note(summary):
     if not floors:
         return f"no case in this run has a noise floor in the {runs} A/A run{'s' if runs != 1 else ''} given"
 
+    # The floor holds only for the trial count and models it was measured at; say so when they differ.
+    sizes = sorted({n for n in reference.get('n') or () if n is not None})
+    caveats = [f"measured at n = {', '.join(map(str, sizes))}, not this run's n = {summary.get('n')}"
+               if sizes and sizes != [summary.get('n')] else None,
+               'measured on other models' if any(m and m != summary.get('models')
+                                                 for m in reference.get('models') or ()) else None]
+    caveats = [c for c in caveats if c]
     return (f"read against the noise floor of {runs} A/A run{'s' if runs != 1 else ''}: "
             f"{sum(f['within'] for f in floors)} of {len(floors)} primary changes within it"
-            + (f", {sum(f['noisy'] for f in floors)} on noisy cases" if any(f['noisy'] for f in floors) else ''))
+            + (f", {sum(f['noisy'] for f in floors)} on noisy cases" if any(f['noisy'] for f in floors) else '')
+            + (f"; the floor was {' and '.join(caveats)}, so it does not carry over" if caveats else ''))
 
 
 def correction_note(summary):

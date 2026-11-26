@@ -590,7 +590,7 @@ def command_schema(parser, args):
                                              'head-minus-base pass-rate differences, primary and largest; noisy '
                                              'when the verdict is not non-inferior or inconclusive; present for '
                                              'A/A runs; differences are null when the decision has a reason',
-            'noise_reference': '{runs: [str], n: [int], cases: {id: {host: {difference: float, noisy: bool, '
+            'noise_reference': '{runs: [str], n: [int], models: [{host: model}], cases: {id: {host: {difference: float, noisy: bool, '
                                'runs: int}}}}; the A/A runs a comparison is read against; present with --noise-floor',
             'cases.<id>.hosts.<host>.noise_floor': '{difference: float, noisy: bool, runs: int, observed: float, '
                                                    'within: bool}; the reference drift, this run\'s absolute primary '

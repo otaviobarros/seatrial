@@ -176,6 +176,7 @@ class NoiseFloorTests(unittest.TestCase):
         data = report.correct(data, 'none')
         self.assertEqual(data['label'], 'a/b')
         self.assertNotIn('aa', data)
+        self.assertFalse(any('noise' in entry['hosts']['fake'] for entry in data['cases'].values()))
 
     def test_a_reference_reads_each_change_against_the_largest_drift_and_rejects_a_b_runs(self):
         same = {'base': {'name': 'main', 'tree': 't'}, 'head': {'name': 'main', 'tree': 't'}}

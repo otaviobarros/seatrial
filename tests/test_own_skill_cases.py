@@ -35,6 +35,10 @@ class NativeRunTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertFalse(cli.no_native_run(evidence(command))[0])
 
+    def test_help_is_not_a_native_run(self):
+        trace = evidence('seatrial compare --help 2>&1', 'seatrial run -h', 'seatrial compare --base HEAD --head WORKTREE --help')
+        self.assertTrue(cli.no_native_run(trace)[0])
+
     def test_no_plan_fails(self):
         self.assertFalse(cli.planned(evidence('seatrial run --dry-run --json'), 'compare')[0])
         self.assertFalse(cli.planned(evidence('git diff'), 'compare')[0])

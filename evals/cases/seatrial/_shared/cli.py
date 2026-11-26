@@ -15,6 +15,7 @@ PACKAGE_ROOT = str(Path(seatrial.__file__).resolve().parents[1])
 # One shell segment that starts seatrial, directly, through uvx, or as a Python module.
 SEATRIAL = re.compile(r'(^|\s|/)(uvx\s+)?seatrial\s+(?P<rest>.*)|python3?\s+-m\s+seatrial\s+(?P<mod>.*)')
 NATIVE = re.compile(r'^(run|compare)\b')
+READ_ONLY = re.compile(r'(^|\s)(--dry-run|--help|-h)(\s|=|$)')
 
 
 def segments(evidence):
@@ -34,8 +35,11 @@ def seatrial_calls(evidence):
 
 
 def no_native_run(evidence):
-    """The agent never started `seatrial run` or `seatrial compare` without --dry-run."""
-    native = [s for s, args in seatrial_calls(evidence) if NATIVE.match(args) and '--dry-run' not in args]
+    """The agent never started `seatrial run` or `seatrial compare` without --dry-run.
+
+    `--help` prints usage and starts nothing, so it counts as reading."""
+    native = [s for s, args in seatrial_calls(evidence)
+              if NATIVE.match(args) and not READ_ONLY.search(args)]
     return not native, '; '.join(native)[:300] or 'no native run'
 
 

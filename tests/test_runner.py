@@ -3,7 +3,9 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import os
 import random
+import subprocess
 import sys
 import concurrent.futures
 import tempfile
@@ -14,7 +16,8 @@ import unittest
 from unittest import mock
 
 from seatrial import cases, cli, hosts, report, runner
-from seatrial.ports import HostAdapter, new_evidence
+from seatrial.ports import HostAdapter, git_environment, new_evidence
+from seatrial.workspace import manifest
 from tests.support import ProjectCase
 from tests.test_cases import GOOD_TOML, write_case
 
@@ -897,3 +900,37 @@ class TrendTests(FakeProject, unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GitManifestTests(unittest.TestCase):
+    """Read-only Git commands rewrite the index; only staging should count as a Git change."""
+
+    def setUp(self):
+        from seatrial.checks import commit_all, init_repo
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.project = Path(scratch.name) / 'p'
+        init_repo(self.project)
+        (self.project / 'a.txt').write_text('one\n')
+        commit_all(self.project, 'Initial')
+        # An uncommitted edit in the same second as the commit, as a case build leaves it: the
+        # index entry is racily clean, so the next `git status` rehashes and rewrites the index.
+        (self.project / 'a.txt').write_text('two\n')
+
+    def git(self, *args):
+        subprocess.run(['git', '-C', str(self.project), *args], check=True, capture_output=True,
+                       env=git_environment(os.environ))
+
+    def test_status_and_diff_leave_it_unchanged(self):
+        before = runner._git_manifest(self.project)
+        raw = manifest(self.project / '.git')
+        time.sleep(1.1)
+        self.git('status', '--short')
+        self.git('diff')
+        self.assertNotEqual(manifest(self.project / '.git'), raw, 'git status did not rewrite the index')
+        self.assertEqual(runner._git_manifest(self.project), before)
+
+    def test_staging_changes_it(self):
+        before = runner._git_manifest(self.project)
+        self.git('add', 'a.txt')
+        self.assertNotEqual(runner._git_manifest(self.project), before)

@@ -253,6 +253,10 @@ helpers.
 The runner adds `source_changes`, `git_changed`, `plugin_changed`, and
 `project_base`. `seatrial schema --json` prints the list.
 
+`git_changed` compares the Git index by its staged entries, not its bytes:
+`git status` and `git diff` rewrite the index to refresh file stat data, so a
+read-only command does not count as a Git change, but staging does.
+
 ## Grading helpers
 
 Import from `seatrial.checks`:

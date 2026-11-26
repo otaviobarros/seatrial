@@ -1,5 +1,5 @@
 id = "seatrial-compare-plan-001"
-version = 1
+version = 2
 skill = "seatrial"
 suite = "regression"
 summary = "Asked to compare a skill edit with no budget, prints the dry-run plan and asks before any model call."

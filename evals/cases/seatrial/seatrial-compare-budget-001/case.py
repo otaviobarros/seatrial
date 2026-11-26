@@ -16,7 +16,7 @@ def build(project):
 
 def grade(project, evidence):
     planned, native = cli.planned(evidence, 'compare'), cli.no_native_run(evidence)
-    question = report_matches(evidence, r'\b(budget|approv\w*)\b')
+    question = report_matches(evidence, r'\b(budget|approv\w*|caps?|confirm\w*|go ahead|proceed)\b')
     return {
         'skill-loaded': skill_loaded(evidence, CASE.skill),
         'planned': planned,

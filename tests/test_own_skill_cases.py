@@ -72,5 +72,49 @@ class ListCasesTests(unittest.TestCase):
         self.assertIsNotNone(cases[0]['error'])
 
 
+    def test_a_case_that_cannot_fail_does_not_reject_a_silent_agent(self):
+        self.seatrial('init', '--yes', '--host', 'claude', '--json')  # The template checks skill-loaded only.
+        self.assertFalse(cli.rejects_silent_agent(self.project)[0])
+
+    def test_a_case_that_checks_the_greeting_rejects_a_silent_agent(self):
+        self.seatrial('init', '--yes', '--host', 'claude', '--json')
+        case = next(self.project.glob('evals/cases/greet/*/case.py'))
+        case.write_text(GREETING_CASE)
+        toml = case.parent / 'case.toml'
+        toml.write_text(toml.read_text().replace('primary = "skill-loaded"', 'primary = "named"')
+                        .replace('{ skill-loaded = "rate", preserved = "zero" }', '{ named = "rate" }'))
+        passed, note = cli.rejects_silent_agent(self.project)
+        self.assertTrue(passed, note)
+
+
+class OnlyChangedTests(unittest.TestCase):
+    def test_allowed_paths_pass_and_others_fail(self):
+        found = evidence()
+        found.update(source_changes=['seatrial.toml', 'evals/cases/greet/greet-001/case.py'], git_changed=False)
+        self.assertTrue(cli.only_changed(found, ('seatrial.toml', 'evals/'))[0])
+        found['source_changes'].append('skills/greet/SKILL.md')
+        self.assertEqual(cli.only_changed(found, ('seatrial.toml', 'evals/')), (False, 'skills/greet/SKILL.md'))
+
+    def test_a_git_change_fails(self):
+        found = evidence()
+        found.update(source_changes=[], git_changed=True, git_changes=['.git/refs/heads/main'])
+        self.assertEqual(cli.only_changed(found, ('evals/',)), (False, 'Git: .git/refs/heads/main'))
+
+
+GREETING_CASE = """from seatrial.checks import commit_all, init_repo, report_matches
+
+
+def build(project):
+    init_repo(project)
+    (project / 'notes.txt').write_text('Visitor log\\n')
+    commit_all(project, 'Initial project')
+    return 'Hi, I am Ana. Can you help me read notes.txt?'
+
+
+def grade(project, evidence):
+    return {'named': report_matches(evidence, r'hello,? ana')}
+"""
+
+
 if __name__ == '__main__':
     unittest.main()

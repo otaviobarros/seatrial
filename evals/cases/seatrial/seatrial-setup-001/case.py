@@ -27,5 +27,7 @@ def grade(project, evidence):
         'configured': (configured, 'seatrial.toml written' if configured else 'no seatrial.toml'),
         'case-loads': (bool(loads), ', '.join(c['id'] for c in loads)
                        or note or '; '.join(f"{c['id']}: {c['error']}" for c in greet)[:300] or 'no greet case'),
+        'rejects-silent-agent': cli.rejects_silent_agent(project) if loads else (False, 'no greet case loads'),
+        'skill-untouched': cli.only_changed(evidence, ('seatrial.toml', 'evals/')),
         'no-native-run': cli.no_native_run(evidence),
     }

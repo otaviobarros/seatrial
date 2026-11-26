@@ -1,10 +1,18 @@
 id = "seatrial-setup-001"
-version = 1
+version = 2
 skill = "seatrial"
 suite = "capability"
-summary = "Sets up seatrial in a project with one skill, adds a case that loads, and makes no model calls."
+summary = "Sets up seatrial in a project with one skill, adds a case that loads and can fail, and makes no model calls."
 hosts = ["claude"]
 shared = ["../_shared/cli.py"]
-primary = "case-loads"
+# The case must fail an agent that never greets; a case that cannot fail measures nothing.
+primary = "rejects-silent-agent"
+
 # rate: compared as a pass rate. zero: any failure is a regression.
-assertions = { skill-loaded = "rate", configured = "rate", case-loads = "rate", no-native-run = "zero" }
+[assertions]
+skill-loaded = "rate"
+configured = "rate"
+case-loads = "rate"
+rejects-silent-agent = "rate"
+skill-untouched = "zero"
+no-native-run = "zero"

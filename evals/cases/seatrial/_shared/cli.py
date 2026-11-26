@@ -43,6 +43,14 @@ def no_native_run(evidence):
     return not native, '; '.join(native)[:300] or 'no native run'
 
 
+def only_changed(evidence, allowed):
+    """(passed, note): the agent changed project files only at `allowed` paths or prefixes, and no Git state."""
+    other = [p for p in evidence['source_changes'] if not p.startswith(tuple(allowed))]
+    if evidence['git_changed']:
+        other.append('Git: ' + ', '.join(evidence.get('git_changes') or ['changed']))
+    return not other, ', '.join(other)[:300] or 'only ' + ', '.join(allowed)
+
+
 def planned(evidence, command):
     """The agent printed a plan for `command` with --dry-run."""
     plans = [s for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
@@ -58,3 +66,43 @@ def list_cases(project):
         return json.loads(result.stdout), ''
     except ValueError:
         return None, (result.stdout + result.stderr)[-300:]
+
+
+# Grades each greet case against an agent that loads the skill but never greets, in a copy of the candidate.
+# A case that passes such an agent cannot detect the behavior it claims to check.
+PROBE = """
+import json, sys, tempfile
+from pathlib import Path
+from seatrial import cases
+from seatrial.ports import new_evidence
+found = {}
+for case in cases.discover().values():
+    if case.skill != 'greet':
+        continue
+    try:
+        project = Path(tempfile.mkdtemp()) / 'project'
+        case.build(project)
+        evidence = new_evidence()
+        # Everything a passing trial shows except the greeting: the skill loaded, nothing changed.
+        evidence.update(final_message='Sure, I can help with that.', terminal=True, skills=['greet'],
+                        source_changes=[],
+                        git_changed=False, git_changes=[], plugin_changed=False, project_base=None)
+        grades = case.grade(project, evidence)
+        found[case.id] = bool(grades[case.primary][0])
+    except Exception as error:
+        found[case.id] = f'{type(error).__name__}: {error}'
+print(json.dumps(found))
+"""
+
+
+def rejects_silent_agent(project):
+    """(passed, note): some greet case's primary assertion fails an agent that never greets."""
+    with tempfile.TemporaryDirectory() as scratch:
+        result = run(clone(project, scratch), sys.executable, '-c', PROBE, timeout=120,
+                     env={'PYTHONPATH': os.pathsep.join(filter(None, [PACKAGE_ROOT, os.environ.get('PYTHONPATH')]))})
+    try:
+        found = json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return False, (result.stdout + result.stderr)[-300:]
+    rejecting = [case_id for case_id, passed in found.items() if passed is False]
+    return bool(rejecting), json.dumps(found)[:300]

@@ -69,7 +69,8 @@ def build(project):
     commit_all(project, 'Add the greet skill and its case')
     edited = SKILL + 'Ask for the name when it is missing, then greet.\n'
     (project / 'skills' / 'greet' / 'SKILL.md').write_text(edited)
-    return 'I just edited the greet skill. Can you check whether my edit is better than what is committed?'
+    return ('I just edited the greet skill. Can you check whether my edit is better than what is committed? '
+            'Do not change any files.')
 
 
 def grade(project, evidence):

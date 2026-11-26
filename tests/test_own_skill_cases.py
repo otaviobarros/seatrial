@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from seatrial.checks import commit_all, init_repo
 from seatrial.ports import new_evidence
@@ -43,6 +44,21 @@ class NativeRunTests(unittest.TestCase):
         self.assertFalse(cli.planned(evidence('seatrial run --dry-run --json'), 'compare')[0])
         self.assertFalse(cli.planned(evidence('git diff'), 'compare')[0])
 
+    def test_a_dry_run_continued_on_the_next_line_passes(self):
+        trace = evidence('seatrial compare --base HEAD \\\n  --dry-run --json')
+        self.assertTrue(cli.no_native_run(trace)[0])
+        self.assertTrue(cli.planned(trace, 'compare')[0])
+
+    def test_a_native_run_anywhere_in_the_command_fails(self):
+        for command in ('seatrial doctor --json\nseatrial compare --base HEAD --n 3 --json',
+                        'seatrial --no-color run --json', 'seatrial --config seatrial.toml compare --base HEAD',
+                        'echo "$(seatrial run --json)"', 'out=`seatrial run --json`'):
+            with self.subTest(command=command):
+                self.assertFalse(cli.no_native_run(evidence(command))[0])
+
+    def test_a_plan_after_global_options_counts(self):
+        self.assertTrue(cli.planned(evidence('seatrial --no-color compare --base HEAD --dry-run'), 'compare')[0])
+
 
 class ListCasesTests(unittest.TestCase):
     def setUp(self):
@@ -71,6 +87,21 @@ class ListCasesTests(unittest.TestCase):
         cases, _ = cli.list_cases(self.project)
         self.assertIsNotNone(cases[0]['error'])
 
+    def test_a_broken_configuration_lists_nothing(self):
+        # `seatrial list --json` then prints one error object, not a list of cases.
+        (self.project / 'seatrial.toml').write_text('[skills\n')
+        cases, note = cli.list_cases(self.project)
+        self.assertIsNone(cases)
+        self.assertIn('seatrial.toml', note)
+
+    def test_the_candidate_code_gets_no_secrets(self):
+        self.seatrial('init', '--yes', '--host', 'claude', '--json')
+        case = next(self.project.glob('evals/cases/greet/*/case.py'))
+        case.write_text("import os\nif 'ANTHROPIC_API_KEY' in os.environ:\n    raise SystemExit('saw the key')\n"
+                        + case.read_text())
+        with mock.patch.dict(os.environ, ANTHROPIC_API_KEY='sk-test'):
+            cases, _ = cli.list_cases(self.project)
+        self.assertIsNone(cases[0]['error'])
 
     def test_a_case_that_cannot_fail_does_not_reject_a_silent_agent(self):
         self.seatrial('init', '--yes', '--host', 'claude', '--json')  # The template checks skill-loaded only.
@@ -85,6 +116,16 @@ class ListCasesTests(unittest.TestCase):
                         .replace('{ skill-loaded = "rate", preserved = "zero" }', '{ named = "rate" }'))
         passed, note = cli.rejects_silent_agent(self.project)
         self.assertTrue(passed, note)
+
+    def test_a_case_that_checks_only_the_skill_call_does_not_reject_a_silent_agent(self):
+        self.seatrial('init', '--yes', '--host', 'claude', '--json')
+        case = next(self.project.glob('evals/cases/greet/*/case.py'))
+        case.write_text(GREETING_CASE.replace("report_matches(evidence, r'hello,? ana')", "tool_used(evidence, 'Skill')")
+                        .replace('report_matches', 'tool_used'))
+        toml = case.parent / 'case.toml'
+        toml.write_text(toml.read_text().replace('primary = "skill-loaded"', 'primary = "named"')
+                        .replace('{ skill-loaded = "rate", preserved = "zero" }', '{ named = "rate" }'))
+        self.assertFalse(cli.rejects_silent_agent(self.project)[0])
 
 
 class OnlyChangedTests(unittest.TestCase):

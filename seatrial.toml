@@ -20,7 +20,7 @@ identity_files = []
 
 [run]
 n = 3
-jobs = 1
+jobs = 4
 timeout = 300
 
 [hosts]

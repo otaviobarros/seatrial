@@ -108,6 +108,12 @@ def add_format(parser):
                              'any --format and with --json')
 
 
+def add_noise_floor(parser):
+    parser.add_argument('--noise-floor', action='append', default=[], metavar='RUN_DIR',
+                        help='Read each primary change against the noise floor of an A/A run, such as '
+                             '`compare --base main --head main`; repeatable, the largest drift per case wins')
+
+
 def add_json(parser):
     parser.add_argument('--json', action='store_true', help='Print JSON to stdout; progress goes to stderr')
 
@@ -153,6 +159,7 @@ def build_parser():
                       help='Trials per revision at each check, increasing; the last is the maximum '
                            '(default: every 5 trials up to --n)')
     add_run_options(pair)
+    add_noise_floor(pair)
     runs = commands.add_parser('runs', help='List retained run directories, newest first')
     runs.add_argument('--limit', type=int, default=20)
     add_json(runs)
@@ -161,6 +168,7 @@ def build_parser():
         sub.add_argument('run_dir', nargs='?', default='latest', help='Run directory, or latest (default)')
         if name == 'report':
             add_format(sub)
+            add_noise_floor(sub)
         add_correction(sub, default=None)
         add_json(sub)
     hosts = commands.add_parser('hosts', help='List host adapters')
@@ -373,6 +381,8 @@ def plan_view(jobs, models, revisions, trigger=None):
 
 def command_trials(parser, args, revisions):
     chosen, hosts, models, jobs, values = plan(parser, args, revisions)
+    # Read the A/A runs before any trial, so a wrong --noise-floor fails fast.
+    args.noise_reference = noise_reference(parser, args.noise_floor) if getattr(args, 'noise_floor', None) else None
     if args.dry_run:
         trials = plan_view(jobs, models, revisions, args.trigger)
         lines = [f"{t['case']} {t['host']}:{t['model']} {t['arm']}={t['revision']} #{t['index']}"
@@ -401,6 +411,8 @@ def command_trials(parser, args, revisions):
 def publish(args, meta, records, chosen, work, name='summary.json'):
     correction = (getattr(args, 'correction', None) or meta.get('correction')
                   or (meta.get('multiple_comparisons') or {}).get('method') or 'none')
+    if getattr(args, 'noise_reference', None):
+        meta = dict(meta, noise_reference=args.noise_reference)
     summary = report.summarize(meta, records, chosen, correction)
     (work / name).write_text(json.dumps(summary, indent=2) + '\n')
     regressed = [f'{c} {h}' for c, e in summary['cases'].items() for h, r in e['hosts'].items()
@@ -450,16 +462,39 @@ def command_regrade(parser, args):
     return publish(args, meta, records, chosen, work, 'summary-regraded.json')
 
 
-def command_report(parser, args):
-    work = run_directory(parser, args.run_dir)
+def stored_summary(parser, work):
+    """The run's regraded summary if there is one, else its summary."""
     path = work / 'summary-regraded.json'
     if not path.exists():
         path = work / 'summary.json'
     if not path.exists():
         parser.error(f'{work} has no summary; the run may still be going, or it stopped: run `seatrial regrade {work}`')
-    summary = json.loads(path.read_text())
-    if args.correction:
-        summary = report.correct(summary, args.correction)
+    return json.loads(path.read_text())
+
+
+def noise_reference(parser, values):
+    """The noise floor of the A/A runs named by --noise-floor; a run that is not A/A is a usage error."""
+    runs, seen = [], set()
+    for value in values:
+        work = run_directory(parser, value)
+        if work.resolve() in seen:  # The same run named twice is one measurement, not two.
+            continue
+        seen.add(work.resolve())
+        runs.append((work.name, stored_summary(parser, work)))
+    try:
+        return report.noise_reference(runs)
+    except ValueError as error:
+        parser.error(str(error))
+
+
+def command_report(parser, args):
+    work = run_directory(parser, args.run_dir)
+    summary = stored_summary(parser, work)
+    if args.noise_floor:
+        summary['noise_reference'] = noise_reference(parser, args.noise_floor)
+    if args.correction or args.noise_floor:  # Rebuilds the interpretation, so a reading is never added twice.
+        summary = report.correct(summary, args.correction or (summary.get('multiple_comparisons') or {}).get('method')
+                                 or 'none')
     emit(args, {'run_dir': str(work), 'summary': summary}, report.render(summary, args.format))
     append_summary(args, summary)
     return EXIT['ok']
@@ -550,6 +585,23 @@ def command_schema(parser, args):
                          'futility': 'the remaining trials could not reach a significant result',
                          'max_n': 'the last look was reached'},
         'summary_fields': {
+            'label': "'a/a' when both arms mounted the same skills (a noise-floor run), 'a/b' for two "
+                     'different revisions, null for one revision',
+            'aa': '{comparisons: int, noisy: ["<case> <host>"], max_difference: float|null}; present for A/A runs',
+            'cases.<id>.hosts.<host>.noise': '{difference: float|null, max_difference: float|null, '
+                                             'max_assertion: str|null, verdict: str, noisy: bool}; absolute '
+                                             'head-minus-base pass-rate differences, primary and largest; noisy '
+                                             'when the verdict is not non-inferior or inconclusive; present for '
+                                             'A/A runs; differences are null when the decision has a reason',
+            'noise_reference': '{runs: [str], n: [int], models: [{host: model}], cases: {id: {host: {difference: float, noisy: bool, '
+                               'runs: int, grader_sha256: str|null}}}}; the A/A runs a comparison is read against; '
+                               'grader_sha256 is "mixed" when the runs graded different case versions; present with '
+                               '--noise-floor',
+            'cases.<id>.hosts.<host>.noise_floor': '{difference: float, noisy: bool, runs: int, observed: float, '
+                                                   'within: bool}; the reference drift, this run\'s absolute primary '
+                                                   'difference, and whether it is at or below the drift; never '
+                                                   'changes the verdict; {stale: true} alone when the case changed since the A/A runs; present '
+                                                   'with --noise-floor',
             'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, stop_family: int, '
                           'trials_planned: int, trials_run: int, trials_saved: int, trials_skipped: int, '
                           'cases: {id: {host: <decision.sequential>}}}; present for --sequential runs',
@@ -683,8 +735,6 @@ def main(argv=None):
         return handlers[args.command](parser, args)
     if args.command == 'run':
         return command_trials(parser, args, {'run': args.rev})
-    if args.base == args.head:
-        parser.error('--base and --head must differ')
     return command_trials(parser, args, {'base': args.base, 'head': args.head})
 
 

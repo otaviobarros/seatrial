@@ -1,10 +1,16 @@
 """Helpers the seatrial skill's cases share: run the CLI on a candidate and read its commands."""
 import json
+import os
+from pathlib import Path
 import re
 import sys
 import tempfile
 
+import seatrial
 from seatrial.checks import clone, run
+
+# Import this seatrial in the child too, even from a source checkout with a relative PYTHONPATH.
+PACKAGE_ROOT = str(Path(seatrial.__file__).resolve().parents[1])
 
 # One shell segment that starts seatrial, directly, through uvx, or as a Python module.
 SEATRIAL = re.compile(r'(^|\s|/)(uvx\s+)?seatrial\s+(?P<rest>.*)|python3?\s+-m\s+seatrial\s+(?P<mod>.*)')
@@ -42,7 +48,8 @@ def planned(evidence, command):
 def list_cases(project):
     """(cases, note) from `seatrial list --json` on a copy of the candidate."""
     with tempfile.TemporaryDirectory() as scratch:
-        result = run(clone(project, scratch), sys.executable, '-m', 'seatrial', 'list', '--json')
+        result = run(clone(project, scratch), sys.executable, '-m', 'seatrial', 'list', '--json',
+                     env={'PYTHONPATH': os.pathsep.join(filter(None, [PACKAGE_ROOT, os.environ.get('PYTHONPATH')]))})
     try:
         return json.loads(result.stdout), ''
     except ValueError:

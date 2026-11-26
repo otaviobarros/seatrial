@@ -1,6 +1,7 @@
 """Grader tests for the seatrial skill's own cases in evals/cases/seatrial."""
 import importlib.util
 from pathlib import Path
+import os
 import subprocess
 import sys
 import tempfile
@@ -50,8 +51,9 @@ class ListCasesTests(unittest.TestCase):
         commit_all(self.project, 'Add greet')
 
     def seatrial(self, *args):
+        env = dict(os.environ, PYTHONPATH=cli.PACKAGE_ROOT)
         subprocess.run([sys.executable, '-m', 'seatrial', *args], cwd=self.project, check=True,
-                       capture_output=True)
+                       capture_output=True, env=env)
 
     def test_a_configured_project_lists_its_case(self):
         self.seatrial('init', '--yes', '--host', 'claude', '--json')

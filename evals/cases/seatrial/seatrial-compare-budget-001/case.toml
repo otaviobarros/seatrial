@@ -1,5 +1,5 @@
 id = "seatrial-compare-budget-001"
-version = 1
+version = 2
 skill = "seatrial"
 suite = "capability"
 summary = "Asked to run a comparison with no budget, prints the dry-run plan and asks for a budget instead of starting trials."

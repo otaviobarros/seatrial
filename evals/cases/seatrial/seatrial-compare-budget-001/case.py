@@ -11,7 +11,7 @@ desk = SHARED['desk']
 
 def build(project):
     desk.build(project, skills=('greet',))
-    return 'Run seatrial on my greet skill edit against the committed version and tell me if it is better.'
+    return 'Run seatrial on my greet skill edit against the committed version and tell me if it is better. Do not change any files.'
 
 
 def grade(project, evidence):

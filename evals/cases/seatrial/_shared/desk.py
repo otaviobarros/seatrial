@@ -1,7 +1,7 @@
 """A configured hello-desk project for the seatrial skill's compare cases.
 
 build() writes seatrial.toml with n = 3, one skill and one case per name, commits them, and
-leaves an uncommitted edit to the greet skill."""
+leaves an uncommitted edit to the greet skill that greet-001 measures, so no case is missing."""
 from seatrial.checks import commit_all, init_repo
 
 CONFIG = '''[project]
@@ -68,4 +68,4 @@ def build(project, skills=('greet', 'farewell')):
         (case / 'case.py').write_text(CASE_PY.format(request=request, pattern=pattern))
     commit_all(project, 'Add the skills and their cases')
     (project / 'skills' / 'greet' / 'SKILL.md').write_text(
-        skill_text('greet') + 'Ask for the name when it is missing, then greet.\n')
+        skill_text('greet') + 'Greet with exactly "Hello, NAME!" before anything else.\n')

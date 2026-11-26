@@ -136,6 +136,53 @@ class ListCasesTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn('greet-002: new-case', note)
 
+class ScopedPlanTests(unittest.TestCase):
+    SCOPES = (r'--changed[=\s]\S+', r'--skill[=\s]+greet\b', r'--case[=\s]+greet-001\b')
+
+    def scoped(self, *commands):
+        return cli.scoped_plan(evidence(*commands), 'compare', self.SCOPES, ('farewell',))[0]
+
+    def test_a_plan_scoped_to_the_edit_passes(self):
+        for command in ('seatrial compare --base HEAD --changed HEAD --dry-run --json',
+                        'uvx seatrial compare --base HEAD --skill greet --dry-run',
+                        'seatrial compare --base HEAD --case=greet-001 --dry-run --json'):
+            with self.subTest(command=command):
+                self.assertTrue(self.scoped(command))
+
+    def test_an_unscoped_or_wrong_plan_fails(self):
+        for command in ('seatrial compare --base HEAD --dry-run --json',
+                        'seatrial compare --base HEAD --skill greet --skill farewell --dry-run',
+                        'seatrial compare --base HEAD --case greet-0012 --dry-run',
+                        'seatrial run --changed HEAD --dry-run --json',
+                        'seatrial compare --base HEAD --changed HEAD --n 3 --json'):
+            with self.subTest(command=command):
+                self.assertFalse(self.scoped(command))
+
+    def test_one_scoped_plan_among_others_passes(self):
+        self.assertTrue(self.scoped('seatrial compare --base HEAD --dry-run --json',
+                                    'seatrial compare --base HEAD --changed HEAD --dry-run --json'))
+
+
+class SizedPlanTests(unittest.TestCase):
+    def sized(self, *commands):
+        return cli.sized_plan(evidence(*commands), 'compare', 10)[0]
+
+    def test_a_plan_with_ten_or_more_trials_passes(self):
+        for command in ('seatrial compare --base HEAD --n 10 --dry-run --json',
+                        'uvx seatrial compare --base HEAD --dry-run --n=12'):
+            with self.subTest(command=command):
+                self.assertTrue(self.sized(command))
+
+    def test_a_small_missing_or_unplanned_size_fails(self):
+        for command in ('seatrial compare --base HEAD --n 3 --dry-run',
+                        'seatrial compare --base HEAD --dry-run --json',
+                        'seatrial compare --base HEAD --n $n --dry-run',
+                        'seatrial compare --base HEAD --n 10 --json',
+                        'seatrial run --n 10 --dry-run'):
+            with self.subTest(command=command):
+                self.assertFalse(self.sized(command))
+
+
 class OnlyChangedTests(unittest.TestCase):
     def test_allowed_paths_pass_and_others_fail(self):
         found = evidence()

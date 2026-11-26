@@ -65,6 +65,21 @@ def planned(evidence, command):
     return bool(plans), '; '.join(plans)[:300] or f'no {command} --dry-run'
 
 
+def scoped_plan(evidence, command, scopes, excluded):
+    """A --dry-run plan for `command` limited by one of `scopes` (regexes over its arguments) and naming none of `excluded`."""
+    plans = [(s, args) for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
+    scoped = [s for s, args in plans
+              if any(re.search(scope, args) for scope in scopes) and not any(word in args for word in excluded)]
+    return bool(scoped), '; '.join(scoped or [s for s, _ in plans])[:300] or f'no {command} --dry-run'
+
+
+def sized_plan(evidence, command, minimum):
+    """A --dry-run plan for `command` with an explicit `--n` of at least `minimum`."""
+    plans = [s for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
+    sized = [s for s in plans if any(int(n) >= minimum for n in re.findall(r'--n[=\s]+(\d+)\b', s))]
+    return bool(sized), '; '.join(sized or plans)[:300] or f'no {command} --dry-run'
+
+
 def python_in_copy(project, *args, timeout):
     """(result, note): run this seatrial's Python in a copy of the candidate; result is None if it could not finish.
 

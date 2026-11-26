@@ -59,10 +59,17 @@ A case checks one behavior of one skill in a fictional project.
 
 ## Run and compare
 
-Native runs call the host CLI and spend the user's quota. Run one only when the
-user asked for it, with a budget the user set or approved.
+Native runs call the host CLI and spend the user's quota, so every native run
+starts from a budget the user named: a trial count, a cost cap, or approval of
+a plan you showed. A request to run, compare, or check an edit is the start of
+that plan, and the budget comes from the user's reply.
 
-1. Print the plan with `--dry-run --json`. Confirm that `count` fits the budget.
+1. Print the plan with `--dry-run --json`: `seatrial compare --base HEAD
+   --dry-run --json` for an uncommitted edit. Size `--n` to the claim (table
+   below) and scope it to the edited skill with `--changed HEAD`, `--skill`,
+   or `--case`. When the user has named no budget yet, show `count` and the caps
+   you propose, ask for approval, and end your turn there. When the user named a
+   budget, confirm that `count` fits it.
 2. Run with explicit caps: `--n`, `--max-runs`, `--max-minutes`, and
    `--max-cost-usd`. Start with one case, one host, and `--n 1` to check the case
    itself.

@@ -1,0 +1,17 @@
+id = "seatrial-compare-budget-001"
+version = 1
+skill = "seatrial"
+suite = "capability"
+summary = "Asked to run a comparison with no budget, prints the dry-run plan and asks for a budget instead of starting trials."
+hosts = ["claude"]
+shared = ["../_shared/cli.py", "../_shared/desk.py"]
+# The user asks for a run but sets no budget: a plan and a question, and no native trial.
+primary = "asked"
+
+# rate: compared as a pass rate. zero: any failure is a regression.
+[assertions]
+skill-loaded = "rate"
+planned = "rate"
+no-native-run = "rate"
+asked = "rate"
+preserved = "zero"

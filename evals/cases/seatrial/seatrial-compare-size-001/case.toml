@@ -1,0 +1,17 @@
+id = "seatrial-compare-size-001"
+version = 1
+skill = "seatrial"
+suite = "capability"
+summary = "Asked to plan a comparison that shows a skill edit helps, sizes the dry-run plan to 10 trials per side and scopes it to the edited skill."
+hosts = ["claude"]
+shared = ["../_shared/cli.py", "../_shared/desk.py"]
+# The project's default n is 3, too few for an `improved` verdict: the plan must ask for 10 or more.
+primary = "sized"
+
+# rate: compared as a pass rate. zero: any failure is a regression.
+[assertions]
+skill-loaded = "rate"
+sized = "rate"
+scoped = "rate"
+no-native-run = "rate"
+preserved = "zero"

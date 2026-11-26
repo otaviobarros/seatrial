@@ -206,7 +206,11 @@ Both arms mount the same files, so every difference between them is noise:
 the agent, the model, the host, and the grader varying from trial to trial.
 seatrial labels a run `a/a` when both arms mounted identical files (the same
 `revisions.<arm>.files` hash or Git tree), whatever the revision names are.
-`compare --base main` on a clean checkout of `main` is an A/A run too.
+`compare --base main` on a clean checkout of `main` is usually an A/A run
+too; a symlink or an ignored file in the skills folder makes the worktree mount
+differ from the Git one, and the run is then labelled `a/b`. Two Git revisions
+count as identical only when their trees match, file modes included.
+The difference fields are `null` for a comparison with too few valid trials.
 
 For each case and host, an A/A run reports under `noise`:
 
@@ -267,9 +271,9 @@ n = 10 gives a false `regressed` in one A/A run out of four (column 6). So a
    flake, or make the assertion a `rate`.
 2. Trials that are not independent or not alike: shared state between trials,
    rate limits, or a grader that depends on time or the network.
-3. Chance: at most 5% per `rate` assertion, so expect about one in 20 to 40
-   such comparisons across a large suite. A second A/A run separates chance
-   from a real cause.
+3. Chance: at most 5% per `rate` assertion, and usually under 1.5% at these
+   trial counts (column 5). A second A/A run separates chance from a real
+   cause.
 
 ### Reading verdicts against it
 
@@ -298,9 +302,9 @@ binomial noise, and the floor is a check on everything else. Read it this way:
 - `noisy`: the case's verdicts are unreliable; fix it before you gate on it.
 
 One A/A run is one draw of the drift: the next A/A run exceeds a one-run floor
-about half the time. The maximum over k runs sits, on average, at the k/(k+1)
-quantile of the drift: three runs give a floor that about 75% of drifts stay
-under. The
+about a third of the time at n = 10 (ties count as within). The maximum of k
+runs covers more: with three runs, about 82–86% of later drifts at n = 10 stay
+within the floor, for pass rates from 50% to 90%. The
 floor holds for the trial count it was measured at; `noise_reference.n` keeps
 it. Measured at n = 10, it overstates the drift of a 20-trial run by about √2.
 

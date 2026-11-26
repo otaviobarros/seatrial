@@ -149,6 +149,16 @@ class NoiseFloorTests(unittest.TestCase):
         self.assertEqual(run({'name': 'NONE', 'tree': None}, {'name': 'NONE', 'tree': None}), 'a/a')
         self.assertEqual(run({'name': 'NONE', 'tree': None}, commit), 'a/b')
         self.assertIsNone(report.label({'arms': ['run'], 'revisions': {'run': commit}}))
+        self.assertEqual(run(commit, dict(commit, name='v2', tree='t2')), 'a/b')  # Same files, another file mode.
+
+    def test_a_comparison_with_too_few_valid_trials_has_no_drift(self):
+        data = c_summary([(9, 9)])
+        data['revisions'] = {'base': {'name': 'main', 'tree': 't'}, 'head': {'name': 'main', 'tree': 't'}}
+        data['cases']['demo-000']['hosts']['fake']['arms']['head'] = c_arm(1, 0)
+        data = report.correct(data, 'none')
+        noise = data['cases']['demo-000']['hosts']['fake']['noise']
+        self.assertEqual((noise['difference'], noise['noisy']), (None, False))
+        self.assertEqual(report.noise_reference([('aa', data)])['cases'], {})
 
     def test_an_a_a_run_measures_drift_and_marks_significant_verdicts_noisy(self):
         data = c_summary([(9, 9), (9, 2), (5, 3)])

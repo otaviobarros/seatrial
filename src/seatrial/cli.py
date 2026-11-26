@@ -490,7 +490,8 @@ def command_report(parser, args):
     if args.noise_floor:
         summary['noise_reference'] = noise_reference(parser, args.noise_floor)
     if args.correction or args.noise_floor:  # Rebuilds the interpretation, so a reading is never added twice.
-        summary = report.correct(summary, args.correction or summary['multiple_comparisons']['method'])
+        summary = report.correct(summary, args.correction or (summary.get('multiple_comparisons') or {}).get('method')
+                                 or 'none')
     emit(args, {'run_dir': str(work), 'summary': summary}, report.render(summary, args.format))
     append_summary(args, summary)
     return EXIT['ok']
@@ -588,7 +589,7 @@ def command_schema(parser, args):
                                              'max_assertion: str|null, verdict: str, noisy: bool}; absolute '
                                              'head-minus-base pass-rate differences, primary and largest; noisy '
                                              'when the verdict is not non-inferior or inconclusive; present for '
-                                             'A/A runs',
+                                             'A/A runs; differences are null when the decision has a reason',
             'noise_reference': '{runs: [str], n: [int], cases: {id: {host: {difference: float, noisy: bool, '
                                'runs: int}}}}; the A/A runs a comparison is read against; present with --noise-floor',
             'cases.<id>.hosts.<host>.noise_floor': '{difference: float, noisy: bool, runs: int, observed: float, '

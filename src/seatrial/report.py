@@ -274,6 +274,9 @@ def label(summary):
     base, head = revisions.get('base') or {}, revisions.get('head') or {}
     if base.get('name') == head.get('name') == NONE:
         return 'a/a'
+    trees = [r.get('tree') for r in (base, head)]
+    if all(t and not t.startswith('files:') for t in trees):  # Two Git trees also see file modes.
+        return 'a/a' if trees[0] == trees[1] else 'a/b'
     return 'a/a' if any(base.get(k) and base.get(k) == head.get(k) for k in ('files', 'tree')) else 'a/b'
 
 
@@ -281,11 +284,12 @@ def noise(entry, result):
     """How far the arms of one A/A comparison drifted apart, as absolute pass-rate differences.
 
     difference is on the primary assertion, max_difference the largest over all assertions;
-    both are None when an arm has no valid trial."""
+    both are None when the decision has a reason, such as too few valid trials."""
     arms = result['arms']
     nb, nh = arms['base']['valid'], arms['head']['valid']
+    compared = nb and nh and not result['decision'].get('reason')
     gaps = {a: abs(arms['head']['assertion_passes'][a] / nh - arms['base']['assertion_passes'][a] / nb)
-            for a in entry['assertions']} if nb and nh else {}
+            for a in entry['assertions']} if compared else {}
     widest = max(gaps, key=gaps.get) if gaps else None
     verdict = result['decision']['verdict']
     return {'difference': round(gaps[entry['primary']], 4) if gaps else None,
@@ -359,7 +363,8 @@ def read_against_noise(summary):
                                        f"points with no change; this {observed * 100:.0f}-point change is "
                                        f"{'within' if within else 'beyond'} that noise floor.")
             if floor['noisy']:
-                meaning['explanation'] += ' The A/A run marked this case noisy, so its verdicts are unreliable.'
+                meaning['explanation'] += (f" {'The' if floor['runs'] == 1 else 'An'} A/A run marked this case noisy, "
+                                           'so its verdicts are unreliable.')
 
 
 def case_order(summary):
@@ -386,6 +391,9 @@ def noise_note(summary):
     floors = [r['noise_floor'] for entry in summary['cases'].values() for r in entry['hosts'].values()
               if r.get('noise_floor')]
     runs = len(reference['runs'])
+    if not floors:
+        return f"no case in this run has a noise floor in the {runs} A/A run{'s' if runs != 1 else ''} given"
+
     return (f"read against the noise floor of {runs} A/A run{'s' if runs != 1 else ''}: "
             f"{sum(f['within'] for f in floors)} of {len(floors)} primary changes within it"
             + (f", {sum(f['noisy'] for f in floors)} on noisy cases" if any(f['noisy'] for f in floors) else ''))

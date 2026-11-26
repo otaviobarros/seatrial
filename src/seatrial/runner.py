@@ -76,13 +76,18 @@ def _source_manifest(project, installed):
     return {p: h for p, h in found.items() if not p.startswith(prefix)}
 
 
+EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
+
+
 def _git_manifest(project):
     """Hash Git metadata, with the index by its staged entries rather than its bytes.
 
     `git status` and `git diff` rewrite the index to refresh file stat data, so its bytes
-    change on read-only commands. The staged entries change only when the agent stages."""
+    change on read-only commands. The staged entries change only when the agent stages.
+    An empty `config.worktree` sets nothing; agent CLIs can create one without a change."""
     git = project / '.git'
-    found = {p: h for p, h in manifest(git).items() if p != 'index'}
+    found = {p: h for p, h in manifest(git).items()
+             if p != 'index' and not (p == 'config.worktree' and h == EMPTY_SHA256)}
     if (git / 'index').exists():
         staged = subprocess.run(['git', '-C', str(project), 'ls-files', '--stage'],
                                 capture_output=True, env=git_environment(os.environ))

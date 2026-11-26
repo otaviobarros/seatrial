@@ -930,6 +930,14 @@ class GitManifestTests(unittest.TestCase):
         self.assertNotEqual(manifest(self.project / '.git'), raw, 'git status did not rewrite the index')
         self.assertEqual(runner._git_manifest(self.project), before)
 
+    def test_an_empty_worktree_config_is_not_a_change(self):
+        before = runner._git_manifest(self.project)
+        worktree = self.project / '.git' / 'config.worktree'
+        worktree.write_text('')
+        self.assertEqual(runner._git_manifest(self.project), before)
+        worktree.write_text('[core]\n\thooksPath = /tmp/hooks\n')
+        self.assertNotEqual(runner._git_manifest(self.project), before)
+
     def test_staging_changes_it(self):
         before = runner._git_manifest(self.project)
         self.git('add', 'a.txt')

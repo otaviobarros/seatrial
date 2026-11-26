@@ -255,7 +255,8 @@ The runner adds `source_changes`, `git_changed`, `plugin_changed`, and
 
 `git_changed` compares the Git index by its staged entries, not its bytes:
 `git status` and `git diff` rewrite the index to refresh file stat data, so a
-read-only command does not count as a Git change, but staging does.
+read-only command does not count as a Git change, but staging does. An empty
+`.git/config.worktree`, which an agent CLI can create, does not count either.
 
 ## Grading helpers
 

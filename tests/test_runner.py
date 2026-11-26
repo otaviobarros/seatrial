@@ -202,8 +202,9 @@ class RunnerTests(ProjectCase, unittest.TestCase):
         self.assertTrue(ok, out)
         read = json.loads(out)['summary']
         self.assertEqual(read['label'], 'a/b')
-        self.assertEqual(read['noise_reference']['cases']['demo-002']['fake'],
-                         {'difference': 0.6, 'noisy': True, 'runs': 1})
+        reference = read['noise_reference']['cases']['demo-002']['fake']
+        self.assertEqual(reference.pop('grader_sha256'), read['cases']['demo-002']['identity']['grader_sha256'])
+        self.assertEqual(reference, {'difference': 0.6, 'noisy': True, 'runs': 1})
         floor = read['cases']['demo-002']['hosts']['fake']['noise_floor']
         self.assertEqual(floor, {'difference': 0.6, 'noisy': True, 'runs': 1, 'observed': 1.0, 'within': False})
         explanation = read['cases']['demo-002']['hosts']['fake']['interpretation']['explanation']

@@ -88,7 +88,8 @@ def verdict_text(result):
     text += f' ({stopped})' if stopped else ''
     text += ', noisy' if (result.get('noise') or {}).get('noisy') else ''
     floor = result.get('noise_floor')
-    text += (', within noise' if floor['within'] else ', beyond noise') if floor else ''
+    if floor:
+        text += ', floor stale' if floor.get('stale') else ', within noise' if floor['within'] else ', beyond noise'
     return f'{text}, underpowered' if (result.get('interpretation') or {}).get('underpowered') else text
 
 
@@ -340,9 +341,13 @@ def noise_reference(runs):
                 found = noise(entry, result)
                 if found['difference'] is None:
                     continue
-                slot = cases.setdefault(case_id, {}).setdefault(host, {'difference': 0.0, 'noisy': False, 'runs': 0})
+                grader = (entry.get('identity') or {}).get('grader_sha256')
+                slot = cases.setdefault(case_id, {}).setdefault(
+                    host, {'difference': 0.0, 'noisy': False, 'runs': 0, 'grader_sha256': grader})
                 slot.update(difference=max(slot['difference'], found['difference']),
                             noisy=slot['noisy'] or found['noisy'], runs=slot['runs'] + 1)
+                if slot['grader_sha256'] != grader:  # Runs on different case versions: no single version.
+                    slot['grader_sha256'] = 'mixed'
     return {'runs': [name for name, _ in runs], 'n': sizes, 'models': models, 'cases': cases}
 
 
@@ -359,6 +364,10 @@ def read_against_noise(summary):
             meaning = result.get('interpretation') or {}
             difference = (meaning.get('primary') or {}).get('difference')
             if not floor or difference is None:
+                continue
+            measured = floor.get('grader_sha256')
+            if measured and measured != (entry.get('identity') or {}).get('grader_sha256'):
+                result['noise_floor'] = {'stale': True}  # The case changed since the A/A run.
                 continue
             observed = round(abs(difference), 4)
             within = observed <= floor['difference']
@@ -384,33 +393,47 @@ def case_order(summary):
 def noise_note(summary):
     """One line on the noise floor: the A/A totals, or how many changes a reference run explains."""
     aa = summary.get('aa')
+    totals = None
     if aa:
         widest = aa['max_difference']
         noisy = len(aa['noisy'])
-        return ('A/A run: both arms ran the same skills, so every difference is noise; '
-                f"{noisy} of {aa['comparisons']} comparisons noisy"
-                + (f" ({', '.join(aa['noisy'])})" if noisy else '')
-                + (f'; largest primary difference {widest * 100:.0f} points' if widest is not None else ''))
+        totals = ('A/A run: both arms ran the same skills, so every difference is noise; '
+                  f"{noisy} of {aa['comparisons']} comparisons noisy"
+                  + (f" ({', '.join(aa['noisy'])})" if noisy else '')
+                  + (f'; largest primary difference {widest * 100:.0f} points' if widest is not None else ''))
+    floor = floor_note(summary)
+    return '; '.join(n for n in (totals, floor) if n) or None
+
+
+def floor_note(summary):
+    """How many primary changes the `noise_reference` runs explain, or None without a reference."""
     reference = summary.get('noise_reference')
     if not reference:
         return None
-    floors = [r['noise_floor'] for entry in summary['cases'].values() for r in entry['hosts'].values()
-              if r.get('noise_floor')]
+    found = [r['noise_floor'] for entry in summary['cases'].values() for r in entry['hosts'].values()
+             if r.get('noise_floor')]
+    floors = [f for f in found if not f.get('stale')]
+    stale = len(found) - len(floors)
     runs = len(reference['runs'])
+    skipped = (f"; {stale} case{'s' if stale != 1 else ''} changed since the A/A run, so not read against it"
+               if stale else '')
     if not floors:
-        return f"no case in this run has a noise floor in the {runs} A/A run{'s' if runs != 1 else ''} given"
+        return (f"no case in this run has a noise floor in the {runs} A/A run{'s' if runs != 1 else ''} given"
+                + skipped)
 
     # The floor holds only for the trial count and models it was measured at; say so when they differ.
     sizes = sorted({n for n in reference.get('n') or () if n is not None})
     caveats = [f"measured at n = {', '.join(map(str, sizes))}, not this run's n = {summary.get('n')}"
                if sizes and sizes != [summary.get('n')] else None,
-               'measured on other models' if any(m and m != summary.get('models')
-                                                 for m in reference.get('models') or ()) else None]
+               'measured on other models' if any(m.get(host) != model  # Only hosts both runs used.
+                                                 for m in reference.get('models') or () if m
+                                                 for host, model in (summary.get('models') or {}).items()
+                                                 if host in m) else None]
     caveats = [c for c in caveats if c]
     return (f"read against the noise floor of {runs} A/A run{'s' if runs != 1 else ''}: "
             f"{sum(f['within'] for f in floors)} of {len(floors)} primary changes within it"
             + (f", {sum(f['noisy'] for f in floors)} on noisy cases" if any(f['noisy'] for f in floors) else '')
-            + (f"; the floor was {' and '.join(caveats)}, so it does not carry over" if caveats else ''))
+            + (f"; the floor was {' and '.join(caveats)}, so it does not carry over" if caveats else '') + skipped)
 
 
 def correction_note(summary):

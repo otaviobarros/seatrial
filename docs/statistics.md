@@ -291,7 +291,11 @@ any of them marked it. Each comparison the floor covers gets `noise_floor`:
 | `within` | `true` when `observed` is at or below the floor |
 
 The verdict text adds `within noise` or `beyond noise`, and the explanation
-says how the change compares with the floor. The floor never changes a verdict,
+says how the change compares with the floor. The floor is measured on one
+version of each case: when a case's grader or fixture changed since the A/A
+runs (its `grader_sha256` differs), the comparison gets `noise_floor: {stale:
+true}`, the verdict text adds `floor stale`, and the run's note counts it.
+Run A/A again after changing a case. The floor never changes a verdict,
 an exit code, or `--fail-on-regression`: Fisher's test already accounts for
 binomial noise, and the floor is a check on everything else. Read it this way:
 
@@ -300,6 +304,11 @@ binomial noise, and the floor is a check on everything else. Read it this way:
 - `improved` or `regressed`, `within noise`: the case has drifted this far with
   no change at all. Confirm with a second run before you act on it.
 - `noisy`: the case's verdicts are unreliable; fix it before you gate on it.
+
+An A/A run itself keeps the usual exit codes: with `--fail-on-regression`, a
+`noisy` case whose verdict is `regressed` exits 4. Use that in a scheduled A/A
+job that should alert when a case turns flaky; leave the flag off an A/A run
+whose job is only to measure the floor.
 
 One A/A run is one draw of the drift: the next A/A run exceeds a one-run floor
 about a third of the time at n = 10 (ties count as within). The maximum of k

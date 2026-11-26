@@ -474,9 +474,12 @@ def stored_summary(parser, work):
 
 def noise_reference(parser, values):
     """The noise floor of the A/A runs named by --noise-floor; a run that is not A/A is a usage error."""
-    runs = []
+    runs, seen = [], set()
     for value in values:
         work = run_directory(parser, value)
+        if work.resolve() in seen:  # The same run named twice is one measurement, not two.
+            continue
+        seen.add(work.resolve())
         runs.append((work.name, stored_summary(parser, work)))
     try:
         return report.noise_reference(runs)
@@ -591,11 +594,14 @@ def command_schema(parser, args):
                                              'when the verdict is not non-inferior or inconclusive; present for '
                                              'A/A runs; differences are null when the decision has a reason',
             'noise_reference': '{runs: [str], n: [int], models: [{host: model}], cases: {id: {host: {difference: float, noisy: bool, '
-                               'runs: int}}}}; the A/A runs a comparison is read against; present with --noise-floor',
+                               'runs: int, grader_sha256: str|null}}}}; the A/A runs a comparison is read against; '
+                               'grader_sha256 is "mixed" when the runs graded different case versions; present with '
+                               '--noise-floor',
             'cases.<id>.hosts.<host>.noise_floor': '{difference: float, noisy: bool, runs: int, observed: float, '
                                                    'within: bool}; the reference drift, this run\'s absolute primary '
                                                    'difference, and whether it is at or below the drift; never '
-                                                   'changes the verdict; present with --noise-floor',
+                                                   'changes the verdict; {stale: true} alone when the case changed since the A/A runs; present '
+                                                   'with --noise-floor',
             'sequential': '{looks: [int], rule: str, alpha: float, threshold: float, stop_family: int, '
                           'trials_planned: int, trials_run: int, trials_saved: int, trials_skipped: int, '
                           'cases: {id: {host: <decision.sequential>}}}; present for --sequential runs',

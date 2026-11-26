@@ -183,7 +183,8 @@ class NoiseFloorTests(unittest.TestCase):
         first = report.correct(dict(c_summary([(9, 7), (9, 9)]), revisions=same), 'none')
         second = report.correct(dict(c_summary([(9, 6), (9, 9)]), revisions=same), 'none')
         reference = report.noise_reference([('one', first), ('two', second)])
-        self.assertEqual(reference['cases']['demo-000']['fake'], {'difference': round(3 / 9, 4), 'noisy': False, 'runs': 2})
+        self.assertEqual(reference['cases']['demo-000']['fake'], {'difference': round(3 / 9, 4), 'noisy': False, 'runs': 2,
+                                                                'grader_sha256': None})
         data = c_summary([(9, 6), (9, 5)])
         data['noise_reference'] = reference
         data = report.correct(data, 'none')
@@ -195,6 +196,21 @@ class NoiseFloorTests(unittest.TestCase):
                          'read against the noise floor of 2 A/A runs: 1 of 2 primary changes within it')
         with self.assertRaisesRegex(ValueError, 'not an A/A run'):
             report.noise_reference([('ab', data)])
+
+    def test_a_floor_from_another_case_version_is_not_applied(self):
+        same = {'base': {'name': 'main', 'tree': 't'}, 'head': {'name': 'main', 'tree': 't'}}
+        aa = c_summary([(9, 7)])
+        aa['cases']['demo-000']['identity'] = {'grader_sha256': 'v1'}
+        reference = report.noise_reference([('one', report.correct(dict(aa, revisions=same), 'none'))])
+        data = c_summary([(9, 8)])
+        data['cases']['demo-000']['identity'] = {'grader_sha256': 'v2'}
+        data['noise_reference'] = reference
+        data = report.correct(data, 'none')
+        result = data['cases']['demo-000']['hosts']['fake']
+        self.assertEqual(result['noise_floor'], {'stale': True})
+        self.assertNotIn('noise floor', result['interpretation']['explanation'])
+        self.assertIn(', floor stale', report.verdict_text(result))
+        self.assertIn('1 case changed since the A/A run', report.noise_note(data))
 
 
 class CommentFormatTests(unittest.TestCase):

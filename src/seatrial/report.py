@@ -86,6 +86,10 @@ def verdict_text(result):
     text += f", {decision['cost']}" if decision.get('cost') else ''
     stopped = stop_text(decision)
     text += f' ({stopped})' if stopped else ''
+    text += ', noisy' if (result.get('noise') or {}).get('noisy') else ''
+    floor = result.get('noise_floor')
+    if floor:
+        text += ', floor stale' if floor.get('stale') else ', within noise' if floor['within'] else ', beyond noise'
     return f'{text}, underpowered' if (result.get('interpretation') or {}).get('underpowered') else text
 
 
@@ -250,9 +254,186 @@ def correct(summary, method):
                 f"{cost['head_median']:.4g} against {cost['base_median']:.4g} USD per trial, Mann-Whitney "
                 f"p = {cost['p_value']:.3f}.")
     summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
+    measure_noise(summary, plain)
+    read_against_noise(summary)
     if 'correction' in summary:  # Run metadata; keep it in step when report or regrade changes the method.
         summary['correction'] = method
     return summary
+
+
+# Verdicts an A/A comparison gives when its arms behave alike; any other verdict marks the case noisy.
+QUIET = ('non-inferior', 'inconclusive')
+
+
+def label(summary):
+    """'a/a' when both arms mounted the same skills, 'a/b' for two different revisions, None for one arm.
+
+    Identical arms share the hash of their mounted files, or their Git tree; two NONE arms mount nothing."""
+    if set(summary.get('arms') or ()) != {'base', 'head'}:
+        return None
+    revisions = summary.get('revisions') or {}
+    base, head = revisions.get('base') or {}, revisions.get('head') or {}
+    if base.get('name') == head.get('name') == NONE:
+        return 'a/a'
+    trees = [r.get('tree') for r in (base, head)]
+    if all(t and not t.startswith('files:') for t in trees):  # Two Git trees also see file modes.
+        return 'a/a' if trees[0] == trees[1] else 'a/b'
+    return 'a/a' if any(base.get(k) and base.get(k) == head.get(k) for k in ('files', 'tree')) else 'a/b'
+
+
+def noise(entry, result):
+    """How far the arms of one A/A comparison drifted apart, as absolute pass-rate differences.
+
+    difference is on the primary assertion, max_difference the largest over all assertions;
+    both are None when the decision has a reason, such as too few valid trials."""
+    arms = result['arms']
+    nb, nh = arms['base']['valid'], arms['head']['valid']
+    compared = nb and nh and not result['decision'].get('reason')
+    gaps = {a: abs(arms['head']['assertion_passes'][a] / nh - arms['base']['assertion_passes'][a] / nb)
+            for a in entry['assertions']} if compared else {}
+    widest = max(gaps, key=gaps.get) if gaps else None
+    verdict = result['decision']['verdict']
+    return {'difference': round(gaps[entry['primary']], 4) if gaps else None,
+            'max_difference': round(gaps[widest], 4) if gaps else None, 'max_assertion': widest,
+            'verdict': verdict, 'noisy': verdict not in QUIET}
+
+
+def measure_noise(summary, compared):
+    """Label the run; for an A/A run, add each comparison's `noise` and the run's `aa` totals."""
+    summary['label'] = label(summary)
+    summary.pop('aa', None)
+    for entry in summary['cases'].values():  # A run that is no longer A/A keeps no stale drift.
+        for result in entry['hosts'].values():
+            result.pop('noise', None)
+    if summary['label'] != 'a/a':
+        return
+    noisy, differences = [], []
+    for case_id, host in compared:
+        entry = summary['cases'][case_id]
+        result = entry['hosts'][host]
+        result['noise'] = noise(entry, result)
+        if result['noise']['noisy']:
+            noisy.append(f'{case_id} {host}')
+        if result['noise']['difference'] is not None:
+            differences.append(result['noise']['difference'])
+    summary['aa'] = {'comparisons': len(compared), 'noisy': noisy,
+                     'max_difference': max(differences) if differences else None}
+
+
+def noise_reference(runs):
+    """The noise floor from one or more A/A summaries, given as (name, summary) pairs.
+
+    Per case and host: the largest primary difference any run saw, whether any run marked it
+    noisy, and how many runs measured it. Raises ValueError for a summary that is not A/A."""
+    cases, sizes, models = {}, [], []
+    for name, summary in runs:
+        kind = label(summary)
+        if kind != 'a/a':
+            why = 'its arms ran different skills' if kind == 'a/b' else 'it ran one revision'
+            raise ValueError(f'{name} is not an A/A run: {why}; '
+                             'measure the noise floor with `seatrial compare --base REV --head REV`')
+        sizes.append(summary.get('n'))
+        models.append(summary.get('models'))
+        for case_id, entry in summary['cases'].items():
+            for host, result in entry['hosts'].items():
+                if not result.get('decision'):
+                    continue
+                found = noise(entry, result)
+                if found['difference'] is None:
+                    continue
+                grader = (entry.get('identity') or {}).get('grader_sha256')
+                slot = cases.setdefault(case_id, {}).setdefault(
+                    host, {'difference': 0.0, 'noisy': False, 'runs': 0, 'grader_sha256': grader})
+                slot.update(difference=max(slot['difference'], found['difference']),
+                            noisy=slot['noisy'] or found['noisy'], runs=slot['runs'] + 1)
+                if slot['grader_sha256'] != grader:  # Runs on different case versions: no single version.
+                    slot['grader_sha256'] = 'mixed'
+    return {'runs': [name for name, _ in runs], 'n': sizes, 'models': models, 'cases': cases}
+
+
+def read_against_noise(summary):
+    """Compare each primary change with the noise floor of `noise_reference`, when the summary has one.
+
+    Adds `noise_floor` to each comparison the reference measured and a sentence to its explanation;
+    never changes a verdict."""
+    reference = summary.get('noise_reference')
+    for case_id, entry in summary['cases'].items():
+        for host, result in entry['hosts'].items():
+            result.pop('noise_floor', None)
+            floor = ((reference or {}).get('cases', {}).get(case_id) or {}).get(host)
+            meaning = result.get('interpretation') or {}
+            difference = (meaning.get('primary') or {}).get('difference')
+            if not floor or difference is None:
+                continue
+            measured = floor.get('grader_sha256')
+            if measured and measured != (entry.get('identity') or {}).get('grader_sha256'):
+                result['noise_floor'] = {'stale': True}  # The case changed since the A/A run.
+                continue
+            observed = round(abs(difference), 4)
+            within = observed <= floor['difference']
+            result['noise_floor'] = {'difference': floor['difference'], 'noisy': floor['noisy'],
+                                     'runs': floor['runs'], 'observed': observed, 'within': within}
+            runs = 'an A/A run' if floor['runs'] == 1 else f"{floor['runs']} A/A runs"
+            meaning['explanation'] += (f" In {runs} the primary pass rate moved up to {floor['difference'] * 100:.0f} "
+                                       f"points with no change; this {observed * 100:.0f}-point change is "
+                                       f"{'within' if within else 'beyond'} that noise floor.")
+            if floor['noisy']:
+                meaning['explanation'] += (f" {'The' if floor['runs'] == 1 else 'An'} A/A run marked this case noisy, "
+                                           'so its verdicts are unreliable.')
+
+
+def case_order(summary):
+    """Cases in report order: in an A/A run, cases with a noisy comparison come first."""
+    items = list(summary['cases'].items())
+    if summary.get('label') == 'a/a':
+        items.sort(key=lambda item: not any((r.get('noise') or {}).get('noisy') for r in item[1]['hosts'].values()))
+    return items
+
+
+def noise_note(summary):
+    """One line on the noise floor: the A/A totals, or how many changes a reference run explains."""
+    aa = summary.get('aa')
+    totals = None
+    if aa:
+        widest = aa['max_difference']
+        noisy = len(aa['noisy'])
+        totals = ('A/A run: both arms ran the same skills, so every difference is noise; '
+                  f"{noisy} of {aa['comparisons']} comparisons noisy"
+                  + (f" ({', '.join(aa['noisy'])})" if noisy else '')
+                  + (f'; largest primary difference {widest * 100:.0f} points' if widest is not None else ''))
+    floor = floor_note(summary)
+    return '; '.join(n for n in (totals, floor) if n) or None
+
+
+def floor_note(summary):
+    """How many primary changes the `noise_reference` runs explain, or None without a reference."""
+    reference = summary.get('noise_reference')
+    if not reference:
+        return None
+    found = [r['noise_floor'] for entry in summary['cases'].values() for r in entry['hosts'].values()
+             if r.get('noise_floor')]
+    floors = [f for f in found if not f.get('stale')]
+    stale = len(found) - len(floors)
+    runs = len(reference['runs'])
+    skipped = (f"; {stale} case{'s' if stale != 1 else ''} changed since the A/A run, so not read against it"
+               if stale else '')
+    if not floors:
+        return (f"no case in this run has a noise floor in the {runs} A/A run{'s' if runs != 1 else ''} given"
+                + skipped)
+
+    # The floor holds only for the trial count and models it was measured at; say so when they differ.
+    sizes = sorted({n for n in reference.get('n') or () if n is not None})
+    caveats = [f"measured at n = {', '.join(map(str, sizes))}, not this run's n = {summary.get('n')}"
+               if sizes and sizes != [summary.get('n')] else None,
+               'measured on other models' if any(m.get(host) != model  # Only hosts both runs used.
+                                                 for m in reference.get('models') or () if m
+                                                 for host, model in (summary.get('models') or {}).items()
+                                                 if host in m) else None]
+    caveats = [c for c in caveats if c]
+    return (f"read against the noise floor of {runs} A/A run{'s' if runs != 1 else ''}: "
+            f"{sum(f['within'] for f in floors)} of {len(floors)} primary changes within it"
+            + (f", {sum(f['noisy'] for f in floors)} on noisy cases" if any(f['noisy'] for f in floors) else '')
+            + (f"; the floor was {' and '.join(caveats)}, so it does not carry over" if caveats else '') + skipped)
 
 
 def correction_note(summary):
@@ -309,7 +490,7 @@ def markdown(summary, notes=True):
     lines = ['| Case | Host | Arm | Valid | Primary pass (95% CI) | All pass | pass^k | Mean wall s | Lines added median '
              '| Cost USD median | Turns median | Tool errors median | Effect (95% CI) | Verdict |',
              '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
-    for case_id, entry in summary['cases'].items():
+    for case_id, entry in case_order(summary):
         for host, result in entry['hosts'].items():
             verdict, change = verdict_text(result), effect_text(result)
             for arm, s in result['arms'].items():
@@ -323,7 +504,7 @@ def markdown(summary, notes=True):
                              f"{median_text(s, 'cost_usd', 4)} | {median_text(s, 'num_turns')} | "
                              f"{median_text(s, 'tool_errors')} | {change} | {verdict} |")
     failures, readings = [], []
-    for case_id, entry in summary['cases'].items():
+    for case_id, entry in case_order(summary):
         for host, result in entry['hosts'].items():
             for arm, s in result['arms'].items():
                 label = arm_label(summary, arm)
@@ -336,7 +517,7 @@ def markdown(summary, notes=True):
             if reading(result, gate_alpha(summary)):
                 readings.append(f'- {case_id} {host}: {reading(result, gate_alpha(summary))}')
     total = summary.get('cost_usd_total') if notes else None  # comment() prints the total itself.
-    notes = [n for n in (correction_note(summary), sequential_note(summary)) if n] if notes else []
+    notes = [n for n in (noise_note(summary), correction_note(summary), sequential_note(summary)) if n] if notes else []
     lines += ['', f'Total host-reported cost: {total:.2f} USD'] if total is not None else []
     return '\n'.join(lines + ([''] + failures if failures else []) + [x for n in notes for x in ('', f'{n[0].upper()}{n[1:]}.')]
                      + (['', '**How to read the verdicts**', ''] + readings if readings else []))
@@ -353,7 +534,7 @@ COMMENT_DETAILS_LIMIT = 50000
 def comment(summary):
     """Markdown for a pull request comment or CI job summary on any platform: verdict counts, cases that
     need attention, and the full table in a collapsed block."""
-    results = [(case_id, host, entry, result) for case_id, entry in summary['cases'].items()
+    results = [(case_id, host, entry, result) for case_id, entry in case_order(summary)
                for host, result in entry['hosts'].items()]
 
     def verdict(result):
@@ -368,7 +549,17 @@ def comment(summary):
 
     lines = [f'- **{v}**: {counts[v]}{notes(v)}' if v != 'none' else f'- **no verdict** (one revision): {counts[v]}'
              for v in VERDICT_ORDER if counts[v]] or ['- no results']
-    attention = sorted((r for r in results if verdict(r[3]) in ATTENTION),
+    noisy = [r for r in results if (r[3].get('noise') or {}).get('noisy')]
+    if noisy:
+        lines += ['', '#### Noisy cases', '',
+                  'Both arms ran the same skills, so these verdicts are noise: do not gate on these cases until '
+                  'they are stable.', '']
+        for case_id, host, entry, result in noisy:
+            gap = result['noise']
+            lines.append(f"- **{gap['verdict']}** `{case_id}` on {host}: primary moved "
+                         f"{gap['difference'] * 100:.0f} points, `{gap['max_assertion']}` "
+                         f"{gap['max_difference'] * 100:.0f} points")
+    attention = sorted((r for r in results if verdict(r[3]) in ATTENTION and r not in noisy),
                        key=lambda r: ATTENTION.index(verdict(r[3])))
     if attention:
         lines += ['', '#### Needs attention', '']
@@ -380,7 +571,7 @@ def comment(summary):
                          + (f', primary {change}' if change != '-' else '') + (f': {detail}' if detail else ''))
     if summary.get('stopped_early'):
         lines[:0] = ['**The run stopped early: these are partial results.**', '']
-    for note in (correction_note(summary), sequential_note(summary)):
+    for note in (noise_note(summary), correction_note(summary), sequential_note(summary)):
         if note:
             lines += ['', f'{note[0].upper()}{note[1:]}.']
     total = summary.get('cost_usd_total')
@@ -403,7 +594,7 @@ def terminal(summary):
     """The summary as an aligned, colored table for a terminal."""
     from seatrial import ui
     rows, notes = [], []
-    for case_id, entry in summary['cases'].items():
+    for case_id, entry in case_order(summary):
         for host, result in entry['hosts'].items():
             decision = result.get('decision') or {}
             for arm, s in result['arms'].items():
@@ -425,7 +616,7 @@ def terminal(summary):
             text = reading(result, gate_alpha(summary)) or decision.get('reason')  # Older summaries lack a reading.
             if text:
                 notes.append(ui.info(f'{case_id} {host}: {text}'))
-    for note in (correction_note(summary), sequential_note(summary)):
+    for note in (noise_note(summary), correction_note(summary), sequential_note(summary)):
         if note:
             notes.append(ui.info(note))
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD med', 'Turns',

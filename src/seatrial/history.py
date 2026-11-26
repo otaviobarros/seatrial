@@ -59,6 +59,7 @@ def rows(summary, records, work, command, date=None):
                     'primary_passes': s['assertion_passes'][primary], 'primary_ci': s['primary_ci'],
                     'assertion_passes': s['assertion_passes'], 'all_pass': s['all_pass'],
                     'cost_usd_total': s.get('cost_usd_total'), 'cost_usd_median': s.get('cost_usd_median'),
+                    'label': summary.get('label'),  # 'a/a' marks a noise-floor run: its verdict measures noise.
                     'verdict': verdict if arm == 'head' else None})  # The verdict judges head against base.
     return found
 
@@ -146,7 +147,8 @@ def _cells(row):
     cost = row.get('cost_usd_median')
     return [row['date'][:16].replace('T', ' '), name, row.get('model') or '-', rate,
             f"{row['all_pass']}/{row['valid']}", '-' if cost is None else f'{cost:.4f}',
-            (row.get('verdict') or '-') + (', partial' if row.get('stopped_early') else ''), change_text(row)]
+            ('A/A ' if row.get('label') == 'a/a' and row.get('verdict') else '') + (row.get('verdict') or '-')
+            + (', partial' if row.get('stopped_early') else ''), change_text(row)]
 
 
 HEADERS = ['Date (UTC)', 'Revision', 'Model', 'Primary pass (95% CI)', 'All pass', 'Cost USD median', 'Verdict',

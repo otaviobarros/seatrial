@@ -9,6 +9,8 @@ seatrial reports each comparison as one reading built from these methods:
   run could not decide.
 - **Mann-Whitney tests** compare cost, turns, tool errors, and wall time, and
   add a `cheaper` or `costlier` note to the verdict.
+- **An A/A run** measures each case's noise floor: how far two runs of the same
+  skills drift apart, and which cases are too unstable to gate on.
 
 `summary.json` stores the reading under `interpretation` for each case and host,
 the effect and cost note under `decision`, and the cost comparison under
@@ -192,6 +194,138 @@ the recommendation states the smallest change the run could detect instead of a
 trial count; a difference that small does not show the revisions are equivalent.
 `[limits] max_n` caps `--n` at 10 by default; raise it before a larger run.
 
+## Noise floor: A/A runs
+
+An A/A run compares a revision with itself:
+
+```sh
+seatrial compare --base main --head main --n 10
+```
+
+Both arms mount the same files, so every difference between them is noise:
+the agent, the model, the host, and the grader varying from trial to trial.
+seatrial labels a run `a/a` when both arms mounted identical files (the same
+`revisions.<arm>.files` hash or Git tree), whatever the revision names are.
+`compare --base main` on a clean checkout of `main` is usually an A/A run
+too; a symlink or an ignored file in the skills folder makes the worktree mount
+differ from the Git one, and the run is then labelled `a/b`. Two Git revisions
+count as identical only when their trees match, file modes included.
+The difference fields are `null` for a comparison with too few valid trials.
+
+For each case and host, an A/A run reports under `noise`:
+
+- `difference`: |head rate − base rate| on the primary assertion, the drift.
+- `max_difference` and `max_assertion`: the largest drift over all assertions.
+- `verdict` and `noisy`: the verdict the usual rule gives. `non-inferior` and
+  `inconclusive` are what identical arms should give; `improved` or `regressed`
+  marks the case `noisy`.
+
+`summary.aa` counts the comparisons, lists the noisy ones, and keeps the
+largest primary drift. Every report format lists noisy cases first, and the
+comment format adds a **Noisy cases** section.
+
+### How large the drift is
+
+With identical arms, each arm's pass count is an independent draw from
+Binomial(n, p), where p is the case's true pass rate. The drift
+d = |p̂₂ − p̂₁| has mean and 95th percentile close to
+
+```text
+sd(p̂₂ − p̂₁) = √( 2·p(1 − p) / n )
+mean d      ≈ 0.80 · sd
+95% of d    ≤ 1.96 · sd
+```
+
+so a case is noisiest at p = 50% and the drift shrinks with √n: four times the
+trials halve it. The exact values at small n:
+
+| n | True pass rate | Mean drift | 95% of drifts at most | P(Fisher p < 0.05) | P(zero-tolerance flake) |
+|---|---|---|---|---|---|
+| 5 | 90% | 13 pp | 40 pp | 0.05% | 24% |
+| 10 | 50% | 18 pp | 40 pp | 1.3% | 0.1% |
+| 10 | 70% | 16 pp | 40 pp | 1.2% | 2.7% |
+| 10 | 90% | 10 pp | 30 pp | 0.1% | 23% |
+| 10 | 95% | 7 pp | 20 pp | 0.01% | 24% |
+| 20 | 90% | 7 pp | 20 pp | 1.2% | 11% |
+
+A 30-point gap between two arms at 10 trials is ordinary noise for a case that
+passes 50% to 90% of the time.
+
+### Why a case is noisy
+
+Fisher's test is exact and conservative: with identical arms, an assertion
+reaches p < 0.05 at most 5% of the time, and in practice far less (column 5).
+A zero-tolerance assertion is not a test. It flags `regressed` when base passes
+every trial and head fails one, which for identical arms with true pass rate p
+happens with probability
+
+```text
+P(flake) = pⁿ · (1 − pⁿ)
+```
+
+This peaks at 25% when pⁿ = ½: an assertion that passes 93% of the time at
+n = 10 gives a false `regressed` in one A/A run out of four (column 6). So a
+`noisy` case nearly always has one of three causes:
+
+1. A zero-tolerance assertion whose true pass rate is below 100%. Fix the
+   flake, or make the assertion a `rate`.
+2. Trials that are not independent or not alike: shared state between trials,
+   rate limits, or a grader that depends on time or the network.
+3. Chance: at most 5% per `rate` assertion, and usually under 1.5% at these
+   trial counts (column 5). A second A/A run separates chance from a real
+   cause.
+
+### Reading verdicts against it
+
+`--noise-floor RUN_DIR` on `compare` or `report` reads an A/B run against one
+or more A/A runs. Repeat the flag to use several; per case and host, the floor
+is the largest primary drift any of them saw, and the case counts as noisy if
+any of them marked it. Each comparison the floor covers gets `noise_floor`:
+
+| Field | Meaning |
+|---|---|
+| `difference` | The floor: the largest A/A primary drift |
+| `noisy` | `true` when an A/A run marked the case noisy |
+| `runs` | How many A/A runs measured the case |
+| `observed` | \|head rate − base rate\| on the primary assertion in this run |
+| `within` | `true` when `observed` is at or below the floor |
+
+The verdict text adds `within noise` or `beyond noise`, and the explanation
+says how the change compares with the floor. The floor is measured on one
+version of each case: when a case's grader or fixture changed since the A/A
+runs (its `grader_sha256` differs), the comparison gets `noise_floor: {stale:
+true}`, the verdict text adds `floor stale`, and the run's note counts it.
+Run A/A again after changing a case. The floor never changes a verdict,
+an exit code, or `--fail-on-regression`: Fisher's test already accounts for
+binomial noise, and the floor is a check on everything else. Read it this way:
+
+- `improved` or `regressed`, `beyond noise`: the change is larger than anything
+  the case did on its own.
+- `improved` or `regressed`, `within noise`: the case has drifted this far with
+  no change at all. Confirm with a second run before you act on it.
+- `noisy`: the case's verdicts are unreliable; fix it before you gate on it.
+
+An A/A run itself keeps the usual exit codes: with `--fail-on-regression`, a
+`noisy` case whose verdict is `regressed` exits 4. Use that in a scheduled A/A
+job that should alert when a case turns flaky; leave the flag off an A/A run
+whose job is only to measure the floor.
+
+One A/A run is one draw of the drift: the next A/A run exceeds a one-run floor
+about a third of the time at n = 10 (ties count as within). The maximum of k
+runs covers more: with three runs, about 82–86% of later drifts at n = 10 stay
+within the floor, for pass rates from 50% to 90%. The
+floor holds for the trial count it was measured at; `noise_reference.n` keeps
+it. Measured at n = 10, it overstates the drift of a 20-trial run by about √2.
+
+### Cost and frequency
+
+An A/A run costs the same as any comparison: 2 × n × cases × hosts trials.
+Run one when you add a case, change a grader, or move to another model or host
+CLI version, and on a schedule, such as weekly, to catch drift in the host. A
+nightly CI lane that runs A/A on alternate nights keeps a fresh floor at the
+cost of half its trials. Use the cheapest model your comparisons use: the
+floor measured on one model does not transfer to another.
+
 ## How to read a result
 
 | `evidence` | Meaning | What to report |
@@ -220,11 +354,14 @@ trials", not as an improvement.
 - Trials are independent and run under the same conditions. seatrial alternates
   revisions so that time and load affect both alike.
 - Each assertion, case, and host is a separate test. Across 20 comparisons of
-  identical revisions, about one can reach p < 0.05 by chance. Use
+  identical revisions, about one can reach p < 0.05 by chance; an A/A run shows
+  how often it happens for your cases. Use
   `--correction holm` or `--correction bh` for a run with many comparisons, or
   confirm a surprising verdict with a second run.
 - The trial estimate sizes one assertion: the primary one, or for `inconclusive`
   the one with the largest drop.
+- The noise floor is advisory and measured per case, host, model, and trial
+  count; it does not carry over to another of these.
 - `cheaper` and `costlier` rest on one uncorrected rank test per comparison;
   in a large run, expect a few by chance.
 - Verdicts are advisory, not merge gates. `--fail-on-regression` is the only exit

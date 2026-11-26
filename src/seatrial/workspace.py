@@ -284,8 +284,10 @@ def mount(revision, dest):
         (dest / '.claude-plugin').mkdir(exist_ok=True)
         (dest / '.claude-plugin/plugin.json').write_text(
             json.dumps({'name': cfg.namespace, 'version': '0.0.0'}, indent=2) + '\n')
+    # The mounted files, hashed alike for every revision: equal hashes mean identical arms (an A/A run).
+    identity['files'] = 'files:' + tree_hash(dest)
     if revision == WORKTREE:
-        identity['tree'] = 'files:' + tree_hash(dest)
+        identity['tree'] = identity['files']
     return identity
 
 

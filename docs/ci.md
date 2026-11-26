@@ -109,6 +109,11 @@ not fail the gate; the reusable workflow below uses it by default.
 [Statistics](statistics.md) explains the corrections and how many trials
 decide a verdict.
 
+A run whose two revisions mount identical skills, such as a push to the default
+branch compared with itself, is labelled `a/a`: its differences measure noise,
+and its report lists noisy cases first. Pass such a run to later comparisons
+with `--noise-floor RUN_DIR`; see [the noise floor](statistics.md#noise-floor-aa-runs).
+
 ## GitHub Actions
 
 ### Reusable workflow

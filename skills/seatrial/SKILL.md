@@ -23,6 +23,7 @@ to every command and read the exit code:
 | 2 | Usage error |
 | 3 | Configuration error, or a failed `doctor` check |
 | 4 | A `regressed` verdict with `--fail-on-regression` |
+| 5 | `--changed REF` found no affected case; report that and run nothing |
 
 Under `--json`, an error is `{"ok": false, "error": ..., "exit": N}` on stdout.
 Report the `error` text and stop; a retry with the same arguments fails the same way.
@@ -71,6 +72,11 @@ user asked for it, with a budget the user set or approved.
    Measure run-to-run noise with the same revision twice, `--base main --head main`;
    pass that run to later comparisons with `--noise-floor RUN_DIR`.
    Held-out cases run only with `--holdout`; run them once, after the edit is final.
+   To run only the cases a change affects, add `--changed REF`, such as
+   `--changed origin/main`.
+   With many cases, add `--correction holm` (a gate) or `--correction bh` (a
+   screen) so that false verdicts do not add up. To save trials, add
+   `--sequential`; decided cases stop early.
 4. Exit 1 means finished trials are kept. Report the reason; rerun only with the
    user's approval.
 
@@ -98,6 +104,9 @@ needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/
 3. When `underpowered` is true, say the run was too small to decide, and pass on
    `recommendation` with `trials_needed`. More trials spend quota: run them only
    within the user's authorization.
+   Quote the change from `decision.effect_primary`: head minus base with its
+   95% interval. A `cheaper` or `costlier` note in `decision.cost` is secondary
+   and never changes the verdict.
    Then read `summary.skills.<skill>`: one pooled verdict per skill across its
    cases, from an exact stratified test on each primary assertion. Report it
    beside the case verdicts, never in place of them; it is not gated. When
@@ -105,16 +114,24 @@ needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/
 4. Report trials with a status other than `completed` apart from failures; they
    are not graded.
 5. When `summary.label` is `a/a`, every difference is noise: report the cases in
-   `summary.aa.noisy` as too unstable to gate on, not as changes. When a
-   comparison has `noise_floor` with `within` true, say the change is no larger
-   than the case drifts with no change.
+   `summary.aa.noisy` as too unstable to gate on, not as changes. A pooled
+   verdict other than `inconclusive` in an A/A run means the skill's cases
+   drifted together; report it as noise too.
+   When a comparison has `noise_floor` with `within` true, say the change is no
+   larger than the case drifts with no change. When `noise_floor` is
+   `{stale: true}`, the case changed since the A/A run: say the floor does not
+   apply and suggest a new A/A run.
 6. Report `isolation_warnings`: those trials loaded skills from outside the
    plugin or from an unknown source, or named the project path, so their results
    may not measure the skill.
 7. Read a sample of `session.jsonl` traces under `run_dir/trials/` before you
    explain why a trial failed.
 8. A grader fix needs no new host calls: `seatrial regrade latest --json`.
-9. To see whether a case got better or worse over weeks, read
+9. For a pull request comment or CI job summary, add `--format comment` to
+   `run`, `compare`, or `report`, and `--summary-file PATH` to also append it
+   to a file.
+10. To see whether a case got better or worse over weeks, read
    `seatrial trend --json`. A row's `changes` lists what differs from the run
    before it: `skill_tree`, `grader_sha256`, `fixture_sha256`, `model`, or
-   `cli_version`. Name that change when a pass rate moves right after it.
+   `cli_version`. Name that change when a pass rate moves right after it. Rows
+   with `label` `a/a` measure noise, not a change.

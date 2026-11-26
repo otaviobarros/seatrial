@@ -16,11 +16,17 @@ verdict. [Exit codes](agents.md#exit-codes) lists the rest.
 
 `--format comment` prints Markdown in this order:
 
-1. One line per verdict count, such as `- **regressed**: 1`.
-2. The `regressed` and `inconclusive` results, each with its reading and, when
-   the run was too small, how many trials would decide it.
-3. The total host-reported cost.
-4. The full results table and the reading of every verdict, inside an HTML
+1. One line per verdict count, such as `- **regressed**: 1`, with how many
+   of them are `cheaper` or `costlier`.
+2. **Noisy cases**, in an A/A run: cases whose identical arms still gave
+   `improved` or `regressed`, with how far they drifted.
+3. **Needs attention**: the `regressed` and `inconclusive` results, each with
+   its effect, its reading and, when the run was too small, how many trials
+   would decide it.
+4. **Pooled by skill**: one line per skill, marked as reported and not gated.
+5. Notes on the A/A label or noise floor, the correction, and sequential
+   stops, when the run used them, then the total host-reported cost.
+6. The full results table and the reading of every verdict, inside an HTML
    `<details>` block. Renderers without HTML support show the tags as text.
 
 Progress and the run directory go to stderr, so stdout holds only the Markdown.
@@ -99,7 +105,7 @@ schedule. Both use `--model HOST=MODEL`, so neither lane changes
 
 | Lane | Trigger | Model | Trials | Selection |
 |---|---|---|---|---|
-| Pull request | Each push to a pull request | A small, cheap model, such as `--model claude=claude-haiku-5-5` | Low `--n`, such as 3, with `--sequential` | `--changed origin/<target>`: only the cases the change affects |
+| Pull request | Each push to a pull request | A small, cheap model, such as `--model claude=claude-haiku-5-5` | `--n 10` with `--sequential`: a clear case stops after 5 trials per revision. `--sequential` needs an `--n` above 5 to take more than one look | `--changed origin/<target>`: only the cases the change affects |
 | Nightly | A schedule on the default branch | The model people use, such as `--model claude=claude-opus-5-5` | The configured `run.n`, or 10 to claim an effect | Every case, compared with the last release tag or a fixed baseline revision |
 
 A cheap model can miss a regression that the full model shows, and the reverse.
@@ -135,6 +141,8 @@ directory, and sets the job result from seatrial's exit code:
 Pin the workflow to a release tag or commit SHA, and set `seatrial-version` to
 the same release, so the CLI accepts the options the workflow passes:
 
+<!-- x-release-please-start-version -->
+
 ```yaml
 name: Skills
 
@@ -155,7 +163,7 @@ jobs:
       setup: npm install -g @anthropic-ai/claude-code
       hosts: claude
       models: claude=claude-haiku-5-5
-      n: 3
+      n: 10
       max-cost-usd: "2"
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -180,6 +188,8 @@ jobs:
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
+
+<!-- x-release-please-end -->
 
 The nightly job compares the default branch with `v1.2.0`, the last release in
 this example. Without `base-ref`, the workflow uses `origin/` plus the pull

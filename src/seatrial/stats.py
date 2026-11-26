@@ -1,6 +1,6 @@
 """Statistics for small trial counts. Verdicts are advisory, not merge gates."""
 from collections import Counter
-from math import ceil, comb, erfc, sqrt
+from math import ceil, comb, erfc, exp, log, sqrt
 from statistics import NormalDist
 
 ALPHA = 0.05
@@ -388,3 +388,140 @@ def sequential_step(assertions, primary, base, head, looks, index, alpha=ALPHA, 
     can_regress = any(fisher(bp[a] + more, nb + more, hp[a], nh + more) < reachable and
                       (bp[a] + more) / (nb + more) > hp[a] / (nh + more) for a in assertions)
     return step if can_improve or can_regress else stop('futility')
+
+
+# A pooled skill verdict: one test across a skill's cases and hosts on each case's primary assertion.
+# A table is (base passes, base valid, head passes, head valid), the argument order of fisher().
+
+
+def informative(table):
+    """True when a table can move a stratified test: both arms have trials and the pooled
+    trials hold at least one pass and one failure."""
+    c1, n1, c2, n2 = table
+    return n1 > 0 and n2 > 0 and 0 < c1 + c2 < n1 + n2
+
+
+def _head_passes(table):
+    """The exact null distribution of head passes in one table given its margins: {x: probability}."""
+    c1, n1, c2, n2 = table
+    k, total = c1 + c2, n1 + n2
+    return {x: comb(n2, x) * comb(n1, k - x) / comb(total, k) for x in range(max(0, k - n1), min(n2, k) + 1)}
+
+
+def _convolution(tables):
+    """The exact null distribution of total head passes across independent tables: {t: probability}."""
+    result = {0: 1.0}
+    for table in tables:
+        step, support = {}, _head_passes(table).items()
+        for t, p in result.items():
+            for x, q in support:
+                step[t + x] = step.get(t + x, 0.0) + p * q
+        result = step
+    return result
+
+
+def _two_sided(distribution, observed):
+    """Sum of the probabilities at or below the observed one, Fisher's two-sided rule."""
+    limit = distribution[observed] * (1 + 1e-9)
+    return min(1.0, sum(p for p in distribution.values() if p <= limit))
+
+
+def stratified_exact(tables):
+    """Two-sided exact conditional test of a common odds ratio of 1 across 2x2 tables.
+
+    Conditions on every table's margins, so total head passes follows a convolution of
+    hypergeometric distributions; the p-value sums the totals no more likely than the observed
+    one, as fisher() does. With one table it equals fisher(). None without an informative table."""
+    return _stratified(tables)[0]
+
+
+def stratified_min_attainable_p(tables):
+    """The smallest p-value stratified_exact() can reach with these margins, or None.
+
+    Each hypergeometric is log-concave, and so is their convolution, so the minimum sits at
+    one of the two extreme totals, as in min_attainable_p()."""
+    return _stratified(tables)[1]
+
+
+def _stratified(tables):
+    """(stratified_exact p, its minimum attainable p) from one convolution; (None, None) when empty."""
+    tables = [t for t in tables if informative(t)]
+    if not tables:
+        return None, None
+    distribution = _convolution(tables)
+    return (_two_sided(distribution, sum(t[2] for t in tables)),
+            min(_two_sided(distribution, min(distribution)), _two_sided(distribution, max(distribution))))
+
+
+def cochran_mantel_haenszel(tables):
+    """Cochran-Mantel-Haenszel chi-square (1 df, with continuity correction) and its p-value, as
+    (statistic, p); None without an informative table. The large-sample twin of stratified_exact()."""
+    tables = [t for t in tables if informative(t)]
+    if not tables:
+        return None
+    deviation = variance = 0.0
+    for c1, n1, c2, n2 in tables:
+        total, passes = n1 + n2, c1 + c2
+        deviation += c2 - n2 * passes / total
+        variance += n1 * n2 * passes * (total - passes) / (total * total * (total - 1))
+    # Yates's half is subtracted only when it does not cross zero, as R's mantelhaen.test does.
+    statistic = (abs(deviation) - (0.5 if abs(deviation) >= 0.5 else 0.0)) ** 2 / variance
+    return statistic, erfc(sqrt(statistic / 2))
+
+
+def mantel_haenszel_odds_ratio(tables, z=1.96):
+    """Mantel-Haenszel common odds ratio of passing in head against base, with the 95% interval
+    from the Robins-Breslow-Greenland variance of its log, as (estimate, low, high).
+
+    The estimate is None when it is unbounded (no table has a head failure beside a base pass);
+    low and high are None when the estimate is 0 or unbounded. None without an informative table."""
+    tables = [t for t in tables if informative(t)]
+    if not tables:
+        return None
+    r_sum = s_sum = pr = ps_qr = qs = 0.0
+    for c1, n1, c2, n2 in tables:
+        a, b, c, d, total = c2, n2 - c2, c1, n1 - c1, n1 + n2  # a, b: head pass, fail; c, d: base.
+        r, s = a * d / total, b * c / total
+        p, q = (a + d) / total, (b + c) / total
+        r_sum, s_sum = r_sum + r, s_sum + s
+        pr, ps_qr, qs = pr + p * r, ps_qr + p * s + q * r, qs + q * s
+    if s_sum == 0:
+        return None, None, None
+    if r_sum == 0:
+        return 0.0, None, None
+    estimate = r_sum / s_sum
+    half = z * sqrt(pr / (2 * r_sum ** 2) + ps_qr / (2 * r_sum * s_sum) + qs / (2 * s_sum ** 2))
+    return estimate, exp(log(estimate) - half), exp(log(estimate) + half)
+
+
+def pool(tables):
+    """The pooled comparison of one skill's tables: totals, the exact test, CMH, and the odds ratio.
+
+    Leaves out tables that cannot inform the test and counts them in `strata_excluded`.
+    `shift` is where head passes fall against their null expectation, the direction the exact
+    test measures: higher, lower, or none."""
+    used = [t for t in tables if informative(t)]
+    observed = sum(t[2] for t in used)
+    expected = sum(t[3] * (t[0] + t[2]) / (t[1] + t[3]) for t in used)
+    odds = mantel_haenszel_odds_ratio(used)
+    chi = cochran_mantel_haenszel(used)
+    p_value, floor = _stratified(used)
+    return {'strata': len(used), 'strata_excluded': len(tables) - len(used),
+            'base': {'passes': sum(t[0] for t in used), 'valid': sum(t[1] for t in used)},
+            'head': {'passes': observed, 'valid': sum(t[3] for t in used)},
+            'expected_head_passes': round(expected, 4) if used else None,
+            'shift': None if not used else 'none' if abs(observed - expected) < 1e-9
+            else 'higher' if observed > expected else 'lower',
+            'p_value': p_value, 'min_attainable_p': floor,
+            'cmh': {'statistic': chi[0], 'p_value': chi[1]} if chi else None,
+            'odds_ratio': None if odds is None else {
+                'estimate': odds[0], 'ci': None if odds[1] is None else [odds[1], odds[2]],
+                'level': 0.95, 'method': 'mantel_haenszel'}}
+
+
+def pooled_verdict(entry, gate_p, alpha=ALPHA):
+    """improved or regressed when the gate p-value of the pooled test is below alpha, in the
+    direction of `shift`; inconclusive otherwise, or without an informative table."""
+    if gate_p is None or gate_p >= alpha or entry['shift'] in (None, 'none'):
+        return 'inconclusive'
+    return 'improved' if entry['shift'] == 'higher' else 'regressed'

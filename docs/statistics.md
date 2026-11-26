@@ -9,6 +9,8 @@ seatrial reports each comparison as one reading built from these methods:
   run could not decide.
 - **Mann-Whitney tests** compare cost, turns, tool errors, and wall time, and
   add a `cheaper` or `costlier` note to the verdict.
+- **A pooled skill verdict** combines a skill's cases with an exact stratified
+  test, so small gains that no single case can show add up to one result.
 - **An A/A run** measures each case's noise floor: how far two runs of the same
   skills drift apart, and which cases are too unstable to gate on.
 
@@ -75,6 +77,127 @@ the run. The non-inferiority margin keeps the planned n, so an early stop never
 widens it. Reports show where a case stopped, for example `regressed (n=6
 significant)`, and mark a stop a regrade or correction contradicts as
 `superseded`.
+
+## Pooled skill verdict
+
+Each case decides on its own trials, capped at about 10 per arm, so only large
+changes reach significance. A skill with five cases that each gain 30 points
+gets five undecided verdicts, though the edit helps. The pooled verdict asks one
+question per skill: across all its cases and hosts, does head pass the primary
+assertion more often than base?
+
+### The test
+
+Each case and host is a stratum with its own 2×2 table on that case's primary
+assertion: in stratum k, base passes c₁ₖ of n₁ₖ valid trials and head passes
+c₂ₖ of n₂ₖ, with mₖ = c₁ₖ + c₂ₖ passes in Nₖ = n₁ₖ + n₂ₖ trials. Cases differ
+in difficulty, so strata are never merged into one table; each stratum compares
+base with head only inside itself.
+
+The verdict uses the exact conditional test of a common odds ratio of 1, the
+stratified form of Fisher's test. With every stratum's totals fixed, head
+passes in stratum k follow the hypergeometric distribution
+
+```text
+P(X = x) = C(n₂ₖ, x) · C(n₁ₖ, mₖ − x) / C(Nₖ, mₖ)
+```
+
+The strata are independent, so the total T = Σ c₂ₖ follows the convolution of
+these distributions. The two-sided p-value sums the probabilities of every total
+no more likely than the observed one, the rule Fisher's test uses. With one
+stratum it is exactly Fisher's p-value on the primary assertion. The verdicts
+can still differ: a case verdict also reads its other assertions and
+zero-tolerance rules, and a correction adjusts it in a different family. It needs no large-sample approximation,
+so it stays valid at 10 trials per arm.
+
+The pooled verdict, at the run's threshold α (0.05, or the per-look threshold
+of a sequential run):
+
+| Pooled verdict | Rule |
+|---|---|
+| `improved` | p < α, and head passed more often than its expectation E = Σ n₂ₖ·mₖ/Nₖ |
+| `regressed` | p < α, and head passed less often than E |
+| `inconclusive` | Any other result, or no stratum can inform the test |
+
+`shift` records the direction: `higher` when T > E, `lower` when T < E.
+
+### Strata left out
+
+A stratum with all passes or all failures in both arms has one possible table,
+so it carries no information: 10/10 against 10/10 cannot favor either arm. A
+comparison whose case verdict has a `reason`, such as fewer than 80% valid
+trials, stays out too, as it does from the case verdicts. Both are listed under
+`excluded` with the reason `no_variation` or `insufficient_trials`.
+
+### Reported beside the test
+
+- **Mantel-Haenszel odds ratio.** The common odds ratio of passing in head
+  against base, with a = c₂ₖ, b = n₂ₖ − c₂ₖ, c = c₁ₖ, d = n₁ₖ − c₁ₖ:
+
+  ```text
+  OR = Σ (aₖdₖ/Nₖ) / Σ (bₖcₖ/Nₖ)
+  ```
+
+  Above 1 favors head. The 95% interval is exp(log OR ± 1.96·SE) with the
+  Robins-Breslow-Greenland variance of log OR, which stays consistent when there
+  are many small strata. When no stratum has a head failure beside a base pass,
+  the estimate is unbounded and stored as `null`; when no stratum has a head
+  pass beside a base failure, it is 0. Neither has an interval.
+- **Cochran-Mantel-Haenszel chi-square.** The large-sample statistic
+
+  ```text
+  X² = (|T − E| − ½)² / Σ n₁ₖn₂ₖmₖ(Nₖ − mₖ) / (Nₖ²(Nₖ − 1))
+  ```
+
+  on 1 degree of freedom, with the continuity half dropped when |T − E| < ½,
+  as R's `mantelhaen.test` does. It is reported under `cmh` for readers who
+  know it; the verdict reads only the exact test.
+
+Reference values, from the penicillin and rabbits data in R's
+`mantelhaen.test` documentation (5 strata, 2 without variation): X² = 3.93,
+p = 0.047; exact p = 0.040; OR = 7.0 (95% interval 1.03 to 47.7). The unit
+tests check these values.
+
+### Example
+
+Five cases, each 5/10 in base and 8/10 in head. Each Fisher test gives
+p = 0.35, so each case is `non-inferior` with an `underpowered` note. Pooled,
+base passes 25/50 and head 40/50, E = 32.5, exact p = 0.004, OR = 4.0 (95%
+interval 1.6 to 9.7): the skill verdict is `improved`.
+
+### Corrections and sequential runs
+
+The pooled tests are a separate family from the case tests: one test per
+skill. `--correction holm` or `bh` adjusts them across the run's skills with
+the same method, and leaves out a skill whose strata cannot reach p < α, as the
+case family does. `adjusted_p_value` and `verdict_uncorrected` work as they do
+for cases, and reports print the uncorrected verdict beside a changed pooled
+one. `family_size` counts the pooled tests, and the correction note names it.
+
+A sequential run tests the pooled verdict once, after the run, at the per-look
+threshold. The stop rule looks only at single cases, so a stratum that stopped
+early is pooled with its trials so far. This keeps the pooled test as strict as
+every other verdict in the run, but it is not a formal sequential design for the
+pooled test. For a pooled claim that must hold exactly, run a fixed `--n`.
+
+### What the pooled verdict does not do
+
+- It is reported, never gated. The case verdicts, the `regressed` list, and
+  `--fail-on-regression` do not read it.
+- A pooled `improved` does not cancel a case `regressed`. `case_verdicts`
+  counts the case verdicts beside it; read both.
+- It assumes one common odds ratio across strata. When cases measure different
+  things, their effects can differ in size or direction: a large gain in one
+  case and a loss in another can cancel or let the gain hide the loss.
+  `directions` counts strata where head passed more, less, or as often as
+  base. A split there means the pooled result describes no single case.
+  seatrial does not test homogeneity: at 10 trials per arm the Breslow-Day
+  test has little power and its approximation fails.
+- It reads only each case's primary assertion. A zero-tolerance failure or a
+  drop on another assertion shows in the case verdicts, not here.
+- It weighs each stratum by its information, not by importance, and pools every
+  case of the skill in the run, holdout cases included. To keep holdout cases
+  apart, run them in their own run.
 
 ## Precision: Wilson score intervals
 
@@ -364,6 +487,9 @@ trials", not as an improvement.
   count; it does not carry over to another of these.
 - `cheaper` and `costlier` rest on one uncorrected rank test per comparison;
   in a large run, expect a few by chance.
+- The pooled skill verdict assumes a common odds ratio across cases, reads only
+  the primary assertions, and is never gated; see
+  [what it does not do](#what-the-pooled-verdict-does-not-do).
 - Verdicts are advisory, not merge gates. `--fail-on-regression` is the only exit
   code that reads them.
 

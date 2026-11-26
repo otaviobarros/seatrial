@@ -98,6 +98,10 @@ needs; see [statistics](https://github.com/otaviobarros/seatrial/blob/main/docs/
 3. When `underpowered` is true, say the run was too small to decide, and pass on
    `recommendation` with `trials_needed`. More trials spend quota: run them only
    within the user's authorization.
+   Then read `summary.skills.<skill>`: one pooled verdict per skill across its
+   cases, from an exact stratified test on each primary assertion. Report it
+   beside the case verdicts, never in place of them; it is not gated. When
+   `directions` counts cases on both sides, say the cases disagree.
 4. Report trials with a status other than `completed` apart from failures; they
    are not graded.
 5. When `summary.label` is `a/a`, every difference is noise: report the cases in

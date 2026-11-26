@@ -64,6 +64,18 @@ interval, as fractions; `decision.effect_primary` repeats the primary entry. A
 decision with a `reason` has no effect.
 [Statistics](statistics.md) explains the method.
 
+`summary.skills` maps each skill to one pooled verdict across its cases and
+hosts on each case's primary assertion: `verdict` (`improved`, `regressed`, or
+`inconclusive`), the exact stratified `p_value`, `odds_ratio` (`estimate`,
+`ci`; `estimate` is `null` when unbounded), `cmh`, `strata`, `cases`,
+`excluded` (with `reason` `no_variation` or `insufficient_trials`),
+`directions`, and `case_verdicts`. Under a correction it adds
+`adjusted_p_value`, and `verdict_uncorrected` when the correction changed the
+pooled verdict; `family_size` counts the pooled tests. The pooled verdict never
+changes the `regressed` list or the exit code. Quote it beside the case
+verdicts, never in place of them, and report `directions` when it shows cases
+moving both ways.
+
 For a pull request comment, use `--format comment` on `run`, `compare`, or
 `report`. Without `--json`, stdout holds only the Markdown; progress and the run
 directory go to stderr. `--summary-file PATH` appends the same Markdown to PATH
@@ -133,6 +145,8 @@ keeps them too: with `--fail-on-regression`, a noisy `regressed` case exits 4.
    statuses separately from failures. When `underpowered` is true, report the
    result as undecided and pass on `recommendation`; more trials need the user's
    authorization.
+   Then read `summary.skills` for the pooled verdict of each skill, and report
+   it as a separate, ungated result.
 6. Read a sample of traces under `run_dir/trials/` before you claim a behavior.
 
 ## Non-interactive setup

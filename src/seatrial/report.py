@@ -256,9 +256,107 @@ def correct(summary, method):
     summary['multiple_comparisons'] = {'method': method, 'family_size': len(tests), 'alpha': alpha}
     measure_noise(summary, plain)
     read_against_noise(summary)
+    pool_skills(summary, method, alpha)
     if 'correction' in summary:  # Run metadata; keep it in step when report or regrade changes the method.
         summary['correction'] = method
     return summary
+
+
+def pool_skills(summary, method, alpha):
+    """Add `skills`: one pooled verdict per skill across its cases and hosts, on each case's primary
+    assertion, from the exact stratified test. Reported, never gated.
+
+    A comparison whose decision has a `reason` (too few valid trials) stays out, and so does one
+    with all passes or all failures in both arms; both are listed under `excluded`. The pooled
+    tests form their own correction family, one test per skill, with the same method, and leave
+    out a skill whose margins cannot reach p < alpha. Cases without a skill, from older
+    summaries, are skipped."""
+    skills, tables = {}, {}
+    for case_id, entry in summary['cases'].items():
+        for host, result in entry['hosts'].items():
+            arms, decision = result['arms'], result.get('decision')
+            if not entry.get('skill') or set(arms) != {'base', 'head'} or not decision:
+                continue
+            item = skills.setdefault(entry['skill'], {'cases': [], 'excluded': [], 'case_verdicts': {}})
+            verdicts = item['case_verdicts']
+            verdicts[decision['verdict']] = verdicts.get(decision['verdict'], 0) + 1
+            primary = entry['primary']
+            table = (arms['base']['assertion_passes'][primary], arms['base']['valid'],
+                     arms['head']['assertion_passes'][primary], arms['head']['valid'])
+            if decision.get('reason'):
+                item['excluded'].append({'case': case_id, 'host': host, 'reason': 'insufficient_trials'})
+            elif not stats.informative(table):
+                item['excluded'].append({'case': case_id, 'host': host, 'reason': 'no_variation'})
+            else:
+                item['cases'].append({'case': case_id, 'host': host, 'assertion': primary,
+                                      'base': list(table[:2]), 'head': list(table[2:]),
+                                      'shift': 'higher' if table[2] / table[3] > table[0] / table[1] else
+                                      'lower' if table[2] / table[3] < table[0] / table[1] else 'none'})
+                tables.setdefault(entry['skill'], []).append(table)
+    family = []
+    for name, item in skills.items():
+        pooled = stats.pool(tables.get(name, []))
+        floor = pooled.pop('min_attainable_p')
+        directions = [c['shift'] for c in item['cases']]
+        item.update(pooled, strata_excluded=len(item['excluded']),
+                    directions={d: directions.count(d) for d in ('higher', 'lower', 'none')})
+        if floor is not None and floor < alpha:
+            family.append(name)
+    adjusted = dict(zip(family, stats.adjust([skills[name]['p_value'] for name in family], method)))
+    for name, item in skills.items():
+        verdict = stats.pooled_verdict(item, item['p_value'], alpha)
+        if method != 'none' and item['p_value'] is not None:
+            item['adjusted_p_value'] = adjusted.get(name, item['p_value'])
+            corrected = stats.pooled_verdict(item, item['adjusted_p_value'], alpha)
+            if corrected != verdict:
+                item['verdict_uncorrected'] = verdict
+            verdict = corrected
+        item['verdict'] = verdict
+        item.update(alpha=alpha, family_size=len(family))
+    summary['skills'] = dict(sorted(skills.items()))
+    return summary
+
+
+def ratio_text(odds):
+    """A pooled odds ratio with its interval, for example `4 (95% CI 1.65–9.72)`; `unbounded` when no
+    table has a head failure beside a base pass."""
+    if not odds:
+        return '-'
+    if odds['estimate'] is None:
+        return 'unbounded'
+
+    def number(x):  # Three significant digits, so a bound near 1 stays visible; below 0.01, one digit (1e-5).
+        return f'{x:.0f}' if x >= 100 else f'{x:.3g}' if x >= 0.01 else f'{x:.1g}'.replace('e-0', 'e-')
+
+    text = number(odds['estimate'])
+    return text + (f" (95% CI {number(odds['ci'][0])}–{number(odds['ci'][1])})" if odds.get('ci') else '')
+
+
+def pooled_lines(summary, code=True):
+    """One line per skill with a pooled verdict, or [] when the summary has none; code=False leaves
+    the skill name without Markdown backticks, for a terminal."""
+    lines = []
+    for skill, item in (summary.get('skills') or {}).items():
+        name = f'`{skill}`' if code else skill
+        verdict = item['verdict'] + (f" (without correction: {item['verdict_uncorrected']})"
+                                     if 'verdict_uncorrected' in item else '')
+        if not item['strata']:
+            lines.append(f"{name}: {verdict}; no case can inform the pooled test "
+                         f"({len(item['excluded'])} excluded).")
+            continue
+        p_text = f"exact p = {item['p_value']:.3g}"
+        if item.get('adjusted_p_value', item['p_value']) != item['p_value']:  # As case readings: only when it moved.
+            p_text += f", adjusted p = {item['adjusted_p_value']:.3g}"
+        counts = ', '.join(f"{n} {d}" for d, n in item['directions'].items() if n)
+        text = (f"{name}: {verdict} across {item['strata']} case-host pair"
+                f"{'s' if item['strata'] != 1 else ''} ({counts}); primary passed "
+                f"{item['base']['passes']}/{item['base']['valid']} in base and "
+                f"{item['head']['passes']}/{item['head']['valid']} in head; odds ratio "
+                f"{ratio_text(item['odds_ratio'])}, {p_text}")
+        if item['excluded']:
+            text += f"; {len(item['excluded'])} excluded"
+        lines.append(text + '.')
+    return lines
 
 
 # Verdicts an A/A comparison gives when its arms behave alike; any other verdict marks the case noisy.
@@ -445,8 +543,13 @@ def correction_note(summary):
         return None
     changed = sum(1 for entry in summary['cases'].values() for result in entry['hosts'].values()
                   if 'verdict_uncorrected' in (result.get('decision') or {}))
-    return (f"verdicts corrected with {info['method']} across {info['family_size']} Fisher tests; "
+    text = (f"verdicts corrected with {info['method']} across {info['family_size']} Fisher tests; "
             f"{changed} changed (marked *)")
+    skills = [item for item in (summary.get('skills') or {}).values() if 'adjusted_p_value' in item]
+    if skills and skills[0]['family_size']:  # An empty family adjusts nothing.
+        moved = sum('verdict_uncorrected' in item for item in skills)
+        text += (f"; pooled verdicts corrected across {skills[0]['family_size']} skill tests, {moved} changed")
+    return text
 
 
 def sequential_note(summary):
@@ -517,9 +620,11 @@ def markdown(summary, notes=True):
             if reading(result, gate_alpha(summary)):
                 readings.append(f'- {case_id} {host}: {reading(result, gate_alpha(summary))}')
     total = summary.get('cost_usd_total') if notes else None  # comment() prints the total itself.
+    pooled = [f'- {line}' for line in pooled_lines(summary)] if notes else []  # comment() prints them itself.
     notes = [n for n in (noise_note(summary), correction_note(summary), sequential_note(summary)) if n] if notes else []
     lines += ['', f'Total host-reported cost: {total:.2f} USD'] if total is not None else []
     return '\n'.join(lines + ([''] + failures if failures else []) + [x for n in notes for x in ('', f'{n[0].upper()}{n[1:]}.')]
+                     + (['', '**Pooled by skill** (reported, not gated)', ''] + pooled if pooled else [])
                      + (['', '**How to read the verdicts**', ''] + readings if readings else []))
 
 
@@ -569,6 +674,9 @@ def comment(summary):
             change = effect_text(result)
             lines.append(f"- **{verdict_text(result)}** `{case_id}` on {host}"
                          + (f', primary {change}' if change != '-' else '') + (f': {detail}' if detail else ''))
+    pooled = pooled_lines(summary)
+    if pooled:
+        lines += ['', '#### Pooled by skill', ''] + [f'- {line}' for line in pooled]
     if summary.get('stopped_early'):
         lines[:0] = ['**The run stopped early: these are partial results.**', '']
     for note in (noise_note(summary), correction_note(summary), sequential_note(summary)):
@@ -619,6 +727,7 @@ def terminal(summary):
     for note in (noise_note(summary), correction_note(summary), sequential_note(summary)):
         if note:
             notes.append(ui.info(note))
+    notes += [ui.info(f'pooled by skill (reported, not gated): {line}') for line in pooled_lines(summary, code=False)]
     text = ui.table(['Case', 'Host', 'Arm', 'Valid', 'Primary', 'All', 'pass^k', 'Wall s', 'USD med', 'Turns',
                      'Tool err', 'Effect', 'Verdict'], rows)
     total = summary.get('cost_usd_total')

@@ -287,7 +287,7 @@ any of them marked it. Each comparison the floor covers gets `noise_floor`:
 | `difference` | The floor: the largest A/A primary drift |
 | `noisy` | `true` when an A/A run marked the case noisy |
 | `runs` | How many A/A runs measured the case |
-| `observed` | |head rate − base rate| on the primary assertion in this run |
+| `observed` | \|head rate − base rate\| on the primary assertion in this run |
 | `within` | `true` when `observed` is at or below the floor |
 
 The verdict text adds `within noise` or `beyond noise`, and the explanation

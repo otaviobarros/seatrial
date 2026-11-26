@@ -338,14 +338,15 @@ def pooled_lines(summary, code=True):
             lines.append(f"{name}: {verdict}; no case can inform the pooled test "
                          f"({len(item['excluded'])} excluded).")
             continue
-        p = item.get('adjusted_p_value', item['p_value'])
-        p_label = 'adjusted p' if 'adjusted_p_value' in item else 'exact p'
+        p_text = f"exact p = {item['p_value']:.3g}"
+        if item.get('adjusted_p_value', item['p_value']) != item['p_value']:  # As case readings: only when it moved.
+            p_text += f", adjusted p = {item['adjusted_p_value']:.3g}"
         counts = ', '.join(f"{n} {d}" for d, n in item['directions'].items() if n)
         text = (f"{name}: {verdict} across {item['strata']} case-host pair"
                 f"{'s' if item['strata'] != 1 else ''} ({counts}); primary passed "
                 f"{item['base']['passes']}/{item['base']['valid']} in base and "
                 f"{item['head']['passes']}/{item['head']['valid']} in head; odds ratio "
-                f"{ratio_text(item['odds_ratio'])}, {p_label} = {p:.3g}")
+                f"{ratio_text(item['odds_ratio'])}, {p_text}")
         if item['excluded']:
             text += f"; {len(item['excluded'])} excluded"
         lines.append(text + '.')

@@ -250,8 +250,8 @@ that cannot show tool calls, `tool_used`, `tool_order`, and `steps_at_most` fail
 with `tool calls not recorded`. Rerun old trials before grading them with these
 helpers.
 
-The runner adds `source_changes`, `git_changed`, `plugin_changed`, and
-`project_base`. `seatrial schema --json` prints the list.
+The runner adds `source_changes`, `git_changed`, `git_changes` (the `.git` paths
+that changed), `plugin_changed`, and `project_base`. `seatrial schema --json` prints the list.
 
 `git_changed` compares the Git index by its staged entries, not its bytes:
 `git status` and `git diff` rewrite the index to refresh file stat data, so a

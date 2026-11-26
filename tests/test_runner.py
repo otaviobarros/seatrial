@@ -246,6 +246,7 @@ class RunnerTests(FakeProject, unittest.TestCase):
             evidence = json.loads((trial / 'evidence.json').read_text())
             self.assertEqual(evidence['source_changes'], ['hello.txt'])
             self.assertFalse(evidence['git_changed'] or evidence['plugin_changed'])
+            self.assertEqual(evidence['git_changes'], [])
         self.assertEqual({r['revision']['name'] for r in records}, {'HEAD', 'WORKTREE'})
         summary = json.loads((work / 'summary.json').read_text())
         demo = summary['cases']['demo-001']['hosts']['fake']

@@ -177,8 +177,9 @@ def run_trial(job, context):
         raise ValueError(f'{host.name} adapter returned invalid evidence: {problems}')
     evidence.update(project_base=project_base,
                     source_changes=delta(before[0], _source_manifest(project, installed)),
-                    git_changed=bool(delta(before[1], _git_manifest(project))),
+                    git_changes=['.git/' + p for p in delta(before[1], _git_manifest(project))],
                     plugin_changed=bool(installed and delta(before[2], manifest(installed))))
+    evidence['git_changed'] = bool(evidence['git_changes'])
     (directory / 'evidence.json').write_text(json.dumps(evidence) + '\n')
     stderr = trial.stderr.read_text(errors='replace')[-4000:] if trial.stderr.exists() else ''
     status = host.classify(process, evidence, stderr)

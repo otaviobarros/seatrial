@@ -610,7 +610,7 @@ def command_schema(parser, args):
                     'globals': ['CASE', 'ID', 'FIXTURE', 'SHARED']},
         'evidence_keys': {k: getattr(v, '__name__', str(v)) for k, v in EVIDENCE_KEYS.items()} | {
             k: f"{v.__name__} (optional)" for k, v in OPTIONAL_EVIDENCE_KEYS.items()} | {
-            'project_base': 'str | None', 'source_changes': 'list', 'git_changed': 'bool',
+            'project_base': 'str | None', 'source_changes': 'list', 'git_changed': 'bool', 'git_changes': 'list',
             'plugin_changed': 'bool'},
         'statuses': {'graded': list(report.GRADED),
                      'invalid': ['incomplete', 'trace_incomplete', 'timeout', 'host_stall', 'usage_limit',

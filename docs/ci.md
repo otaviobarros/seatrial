@@ -178,7 +178,7 @@ jobs:
       setup: npm install -g @anthropic-ai/claude-code
       hosts: claude
       models: claude=claude-opus-5-5
-      base-ref: v1.2.0
+      base-ref: origin/stable
       changed: false
       sequential: false
       n: 10
@@ -191,9 +191,10 @@ jobs:
 
 <!-- x-release-please-end -->
 
-The nightly job compares the default branch with `v1.2.0`, the last release in
-this example. Without `base-ref`, the workflow uses `origin/` plus the pull
-request's target branch, or the default branch on other events. On the default
+The nightly job compares the default branch with `origin/stable`, a branch
+that holds your last released skills in this example; a release tag works too.
+Without `base-ref`, the workflow uses `origin/` plus the pull request's target
+branch, or the default branch on other events. On the default
 branch itself, such as on a schedule, that compares the branch with itself, so
 set `base-ref`.
 

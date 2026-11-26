@@ -253,10 +253,14 @@ helpers.
 The runner adds `source_changes`, `git_changed`, `git_changes` (the `.git` paths
 that changed), `plugin_changed`, and `project_base`. `seatrial schema --json` prints the list.
 
-`git_changed` compares the Git index by its staged entries, not its bytes:
-`git status` and `git diff` rewrite the index to refresh file stat data, so a
-read-only command does not count as a Git change, but staging does. An empty
-`.git/config.worktree`, which an agent CLI can create, does not count either.
+`git_changed` compares the Git index by its entries, not its bytes: `git status`
+and `git diff` rewrite the index to refresh file stat data, so a read-only command
+does not count as a Git change, but staging does, and so does hiding a change with
+`git update-index --assume-unchanged` or `--skip-worktree`. An empty
+`.git/config.worktree`, `.git/objects/info/alternates`, or
+`.git/objects/info/http-alternates` sets nothing and does not count either; Claude
+Code's Bash sandbox on Linux creates them empty in every trial, before the agent
+runs a command.
 
 ## Grading helpers
 

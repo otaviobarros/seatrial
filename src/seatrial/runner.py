@@ -77,19 +77,23 @@ def _source_manifest(project, installed):
 
 
 EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
+# Git files that change nothing while empty. Claude Code's Linux sandbox creates them empty
+# at start-up, as mount points for its write protection, before the agent runs a command.
+NO_OP_WHEN_EMPTY = {'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates'}
 
 
 def _git_manifest(project):
-    """Hash Git metadata, with the index by its staged entries rather than its bytes.
+    """Hash Git metadata, with the index by its entries rather than its bytes.
 
     `git status` and `git diff` rewrite the index to refresh file stat data, so its bytes
-    change on read-only commands. The staged entries change only when the agent stages.
-    An empty `config.worktree` sets nothing; agent CLIs can create one without a change."""
+    change on read-only commands. Its entries, with their assume-unchanged and skip-worktree
+    flags, change only when the agent stages or hides a change. Files in NO_OP_WHEN_EMPTY
+    count only once they hold something."""
     git = project / '.git'
     found = {p: h for p, h in manifest(git).items()
-             if p != 'index' and not (p == 'config.worktree' and h == EMPTY_SHA256)}
+             if p != 'index' and not (Path(p).as_posix() in NO_OP_WHEN_EMPTY and h == EMPTY_SHA256)}
     if (git / 'index').exists():
-        staged = subprocess.run(['git', '-C', str(project), 'ls-files', '--stage'],
+        staged = subprocess.run(['git', '-C', str(project), 'ls-files', '--stage', '-v'],
                                 capture_output=True, env=git_environment(os.environ))
         found['index'] = hashlib.sha256(staged.stdout + staged.stderr).hexdigest()
     return found

@@ -115,6 +115,22 @@ def tree_hash(root):
     return hashlib.sha256(json.dumps(manifest(root), sort_keys=True).encode()).hexdigest()
 
 
+def skill_tree(plugin, skill, files=None):
+    """Hash what one skill reads in a mounted plugin: its folder and the shared files, not other skills.
+
+    Shared files include files and non-skill folders under `skills/`, such as a folder that
+    several skills reference. None for the NONE revision, or when the skill is not in the
+    mount. files is the mount's manifest(), when the caller already has it. The hash covers
+    the mounted files, so a Git revision and a clean worktree at that revision hash alike; an
+    untracked file the worktree mount copies, such as a scratch file, changes it."""
+    if plugin is None or not (Path(plugin) / 'skills' / skill).is_dir():
+        return None
+    others = {p.parent.name for p in (Path(plugin) / 'skills').glob('*/SKILL.md')} - {skill}
+    files = {path: digest for path, digest in (manifest(plugin) if files is None else files).items()
+             if Path(path).parts[:1] != ('skills',) or not set(Path(path).parts[1:2]) & others}
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+
+
 def resolve(revision):
     """Identify a revision without mounting it: commit sha and skills tree."""
     if revision == NONE:

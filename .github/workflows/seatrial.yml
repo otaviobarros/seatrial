@@ -91,6 +91,18 @@ on:
         description: Name of the run directory artifact; set a distinct name for each call in one workflow run
         type: string
         default: ""
+      history:
+        description: Keep trend history across runs in the Actions cache and add seatrial trend to the job summary
+        type: boolean
+        default: false
+      history-key:
+        description: Cache key prefix for the trend history; give each lane, and each call in one workflow run, its own
+        type: string
+        default: seatrial-history
+      history-last:
+        description: Runs per case, host, and arm that the job summary's trend shows; 0 shows all
+        type: number
+        default: 10
       env:
         description: Non-secret NAME=VALUE lines for the host CLIs, such as CLAUDE_CODE_USE_BEDROCK=1 and AWS_REGION=us-east-1
         type: string
@@ -214,6 +226,15 @@ jobs:
           printenv OPENAI_API_KEY | codex login -c 'cli_auth_credentials_store="file"' --with-api-key > /dev/null
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
 
+      # Each run saves a new cache entry; restore-keys picks the newest one, from this branch or the default branch.
+      - name: Restore the trend history
+        if: inputs.history && !inputs.dry-run
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/seatrial-state/history.jsonl
+          key: ${{ inputs.history-key }}-run-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ inputs.history-key }}-run-
+
       - name: Evaluate
         id: evaluate
         env:
@@ -268,6 +289,17 @@ jobs:
             echo "No seatrial case is affected by the changes since \`$BASE_REF\`." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Rows go into SEATRIAL_STATE, so the run directory artifact carries the history too.
+      - name: Add the trend to the job summary
+        if: >-
+          always() && inputs.history && !inputs.dry-run && steps.evaluate.outputs.exit-code != ''
+        env:
+          LAST: ${{ inputs.history-last }}
+        run: |
+          [ -s "$SEATRIAL_STATE/history.jsonl" ] || exit 0
+          last=(); [ "$LAST" != 0 ] && last=(--last "$LAST")
+          { echo '### seatrial trend'; echo; seatrial trend "${last[@]}" --format markdown; echo; } >> "$GITHUB_STEP_SUMMARY"
+
       # A fork's read-only token cannot comment; the job summary still has the report.
       - name: Comment on the pull request
         continue-on-error: true
@@ -290,6 +322,14 @@ jobs:
           path: ${{ env.SEATRIAL_STATE }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: ignore
+
+      - name: Save the trend history
+        if: >-
+          always() && inputs.history && !inputs.dry-run && steps.evaluate.outputs.exit-code != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/seatrial-state/history.jsonl
+          key: ${{ inputs.history-key }}-run-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Fail on regression or error
         if: always()

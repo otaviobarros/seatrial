@@ -87,7 +87,30 @@ def concrete_paths(path):
     return [path.replace('<metric>', name) for name in report.EFFICIENCY] if '<metric>' in path else [path]
 
 
-class RunnerTests(ProjectCase, unittest.TestCase):
+class FakeProject(ProjectCase):
+    """A project with two fake-host cases, and the CLI run inside it."""
+
+    def setUp(self):
+        super().setUp()
+        root = self.cfg.cases
+        write_case(root, py=CASE_PY)
+        write_case(root, GOOD_TOML.replace('demo-001', 'demo-002'), CASE_PY, name='demo-002')
+        for directory in root.glob('demo/*'):
+            toml = directory / 'case.toml'
+            toml.write_text(toml.read_text() + 'hosts = ["fake"]\n')
+        fake = Fake()
+        patch = mock.patch.object(hosts, 'get', lambda name: fake if name == 'fake' else hosts.available()[name])
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def cli(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main(['--no-color', '--config', str(self.cfg.file), *argv])
+        return code == 0, out.getvalue()
+
+
+class RunnerTests(FakeProject, unittest.TestCase):
     def assert_documented_types(self, summary, case_ids):
         """Fail when a documented effect or efficiency field is renamed or changes type."""
         for case_id in case_ids:
@@ -109,25 +132,6 @@ class RunnerTests(ProjectCase, unittest.TestCase):
                 for name in report.EFFICIENCY:
                     self.assertIsInstance(arm[f'{name}_values'], list)
 
-
-    def setUp(self):
-        super().setUp()
-        root = self.cfg.cases
-        write_case(root, py=CASE_PY)
-        write_case(root, GOOD_TOML.replace('demo-001', 'demo-002'), CASE_PY, name='demo-002')
-        for directory in root.glob('demo/*'):
-            toml = directory / 'case.toml'
-            toml.write_text(toml.read_text() + 'hosts = ["fake"]\n')
-        fake = Fake()
-        patch = mock.patch.object(hosts, 'get', lambda name: fake if name == 'fake' else hosts.available()[name])
-        patch.start()
-        self.addCleanup(patch.stop)
-
-    def cli(self, *argv):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            code = cli.main(['--no-color', '--config', str(self.cfg.file), *argv])
-        return code == 0, out.getvalue()
 
     def test_dry_run_prints_the_interleaved_plan(self):
         ok, out = self.cli('compare', '--base', 'HEAD', '--case', 'demo-001', '--n', '2', '--dry-run')
@@ -804,6 +808,91 @@ class RunnerTests(ProjectCase, unittest.TestCase):
     def test_schedule_skips_hosts_a_case_does_not_support(self):
         demo = cases.discover()['demo-001']
         self.assertEqual(runner.schedule([demo], ['codex'], ['run'], 3), [])
+
+
+class TrendTests(FakeProject, unittest.TestCase):
+    """History rows from fake-host runs, and the trend series built from them."""
+
+    def history(self):
+        path = self.cfg.state / 'history.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def trend(self, *argv):
+        ok, out = self.cli('trend', '--json', *argv)
+        self.assertTrue(ok, out)
+        return json.loads(out)
+
+    def test_runs_append_one_row_per_case_host_and_arm_with_identity_fields(self):
+        ok, out = self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--host', 'fake', '--n', '1')
+        self.assertTrue(ok, out)
+        work = out.split('run directory (local only): ')[1].strip()
+        rows = self.history()
+        self.assertEqual(sorted((r['case_id'], r['arm']) for r in rows),
+                         [('demo-001', 'base'), ('demo-001', 'head'), ('demo-002', 'base'), ('demo-002', 'head')])
+        row = next(r for r in rows if r['case_id'] == 'demo-001' and r['arm'] == 'head')
+        summary = json.loads((Path(work) / 'summary.json').read_text())
+        self.assertEqual(row['root'], str(self.cfg.root))
+        self.assertEqual((row['command'], row['run_dir'], row['host'], row['skill']), ('compare', work, 'fake', 'demo'))
+        self.assertEqual((row['model'], row['cli_version'], row['revision']['name']), ('fake-model', 'fake 1.0', 'WORKTREE'))
+        self.assertEqual(row['grader_sha256'], summary['cases']['demo-001']['identity']['grader_sha256'])
+        self.assertEqual((row['trials'], row['valid'], row['primary_passes'], row['all_pass']), (1, 1, 1, 1))
+        # HEAD against a clean worktree mounts the same files: an A/A run.
+        self.assertEqual((row['verdict'], row['stopped_early'], row['label']), ('non-inferior', False, 'a/a'))
+        self.assertRegex(row['date'], r'^\d{4}-\d\d-\d\dT')
+        # Base and head mount the same content, from Git and from the worktree: one skill tree.
+        trees = {r['skill_tree'] for r in rows}
+        self.assertEqual(len(trees), 1)
+        self.assertRegex(trees.pop(), r'^[0-9a-f]{64}$')
+        self.assertEqual(summary['skill_trees']['head'], {'demo': row['skill_tree']})
+        self.assertTrue(self.cli('compare', '--base', 'HEAD', '--skill', 'demo', '--host', 'fake', '--dry-run')[0])
+        self.assertTrue(self.cli('regrade', work)[0])
+        self.assertEqual(len(self.history()), 4)  # Dry runs and regrades add nothing.
+
+    def test_trend_marks_a_new_skill_tree_and_a_new_model(self):
+        argv = ('run', '--case', 'demo-001', '--host', 'fake', '--n', '1')
+        self.assertTrue(self.cli(*argv)[0])
+        # Another skill's edit is not this skill's change.
+        (self.cfg.skills / 'skills/other/SKILL.md').write_text('---\nname: other\ndescription: Edited.\n---\n')
+        self.assertTrue(self.cli(*argv)[0])
+        (self.cfg.skills / 'skills/demo/SKILL.md').write_text('---\nname: demo\ndescription: Edited.\n---\n')
+        self.assertTrue(self.cli(*argv)[0])
+        self.assertTrue(self.cli(*argv, '--model', 'fake=fake-model-2')[0])
+        rows = self.trend()
+        self.assertEqual([[c['field'] for c in r['changes']] for r in rows],
+                         [[], [], ['skill_tree'], ['model']])
+        self.assertEqual((rows[3]['changes'][0]['from'], rows[3]['changes'][0]['to']), ('fake-model', 'fake-model-2'))
+        ok, out = self.cli('trend', '--format', 'markdown')
+        self.assertIn('#### `demo-001` on fake, run', out)
+        self.assertIn('| model fake-model→fake-model-2 |', out)
+        self.assertRegex(out, r'\| skill [0-9a-f]{8}→[0-9a-f]{8} \|')
+        # A window keeps the marker that compares its first row with the run before it.
+        self.assertEqual([[c['field'] for c in r['changes']] for r in self.trend('--last', '1')], [['model']])
+        ok, out = self.cli('trend')
+        self.assertIn('demo-001 fake run', out)
+
+    def test_rows_from_another_project_root_and_unreadable_lines_are_excluded(self):
+        self.assertTrue(self.cli('run', '--case', 'demo-001', '--host', 'fake', '--n', '1')[0])
+        own = self.history()[0]
+        path = self.cfg.state / 'history.jsonl'
+        with path.open('a') as handle:
+            handle.write(json.dumps({**own, 'root': '/another/project'}) + '\n')
+            handle.write('{not json\n')
+            handle.write(json.dumps({'date': own['date'], 'root': own['root']}) + '\n')  # Readable, incomplete.
+            handle.write(json.dumps({**own, 'date': '2020-01-01T00:00:00+00:00', 'case_id': 'demo-002'}) + '\n')
+        rows = self.trend()
+        self.assertEqual([(r['root'], r['case_id']) for r in rows],
+                         [(str(self.cfg.root), 'demo-002'), (str(self.cfg.root), 'demo-001')])
+        self.assertEqual([r['case_id'] for r in self.trend('--since', '2021-01-01')], ['demo-001'])
+        self.assertEqual(self.trend('--case', 'demo-002', '--host', 'fake', '--arm', 'run')[0]['case_id'], 'demo-002')
+        self.assertEqual(self.trend('--skill', 'other'), [])
+        with self.assertRaises(SystemExit):
+            self.cli('trend', '--since', 'last week')
+
+    def test_trend_without_history_says_so(self):
+        ok, out = self.cli('trend')
+        self.assertTrue(ok)
+        self.assertIn('no trend history', out)
+        self.assertEqual(self.trend(), [])
 
 
 if __name__ == '__main__':

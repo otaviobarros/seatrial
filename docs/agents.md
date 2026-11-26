@@ -116,6 +116,20 @@ when the case's grader changed since the A/A runs. The noise floor never
 changes `decision.verdict`, the `regressed` list, or exit code 4. An A/A run
 keeps them too: with `--fail-on-regression`, a noisy `regressed` case exits 4.
 
+## Trend history
+
+`seatrial trend --json` prints a list of rows, oldest first within each series
+of case, host, and arm. Each row summarizes one arm of one finished run: the
+identity fields (`skill_tree`, `grader_sha256`, `fixture_sha256`, `model`, `cli_version`,
+`revision`), the counts (`trials`, `valid`, `primary_passes`, `primary_ci`,
+`all_pass`), `cost_usd_median`, `verdict`, `label` (`a/a` for a noise-floor
+run, whose verdict measures noise, not a change), and `run_dir`. `changes` lists each
+identity field that differs from the previous row of the series as
+`{field, label, from, to}`; the first row has none. `seatrial schema --json`
+lists every field under `history_fields`. Rows from other project roots never
+appear. Filters (`--case`, `--skill`, `--host`, `--arm`, `--since`, `--last`)
+do not reset `changes`: a row's marker still compares it with the run before it.
+
 ## Procedure
 
 1. Run `seatrial doctor --json`. On exit 3, report each check whose `level` is

@@ -1,5 +1,5 @@
 id = "seatrial-compare-size-001"
-version = 2
+version = 3
 skill = "seatrial"
 suite = "capability"
 summary = "Asked to plan a comparison that shows a skill edit helps, sizes the dry-run plan to 10 trials per side and scopes it to the edited skill."

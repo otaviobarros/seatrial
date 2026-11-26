@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('own_skill_cli', ROOT / 'evals/cases/seatrial/_shared/cli.py')
 cli = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cli)
+DESK_SPEC = importlib.util.spec_from_file_location('own_skill_desk', ROOT / 'evals/cases/seatrial/_shared/desk.py')
+desk = importlib.util.module_from_spec(DESK_SPEC)
+DESK_SPEC.loader.exec_module(desk)
 
 
 def evidence(*commands):
@@ -138,7 +141,7 @@ class ListCasesTests(unittest.TestCase):
 
 
 class ScopedPlanTests(unittest.TestCase):
-    SCOPES = (r'--changed(?:=|\s+)(?!-)\S+', r'--skill[=\s]+greet\b', r'--case[=\s]+greet-001\b')
+    SCOPES = (cli.changed_since_base, *desk.GREET_SCOPES)
 
     def scoped(self, *commands):
         return cli.scoped_plan(evidence(*commands), 'compare', self.SCOPES, ('farewell',))[0]
@@ -146,7 +149,11 @@ class ScopedPlanTests(unittest.TestCase):
     def test_a_plan_scoped_to_the_edit_passes(self):
         for command in ('seatrial compare --base HEAD --changed HEAD --dry-run --json',
                         'uvx seatrial compare --base HEAD --skill greet --dry-run',
-                        'seatrial compare --base HEAD --case=greet-001 --dry-run --json'):
+                        'seatrial compare --base HEAD --case=greet-001 --dry-run --json',
+                        'seatrial compare --base HEAD --skill "greet" --dry-run',
+                        "seatrial compare --base HEAD --case 'greet-001' --dry-run",
+                        'seatrial compare --base main --changed main --dry-run',
+                        'seatrial compare --changed="HEAD" --base HEAD --dry-run'):
             with self.subTest(command=command):
                 self.assertTrue(self.scoped(command))
 
@@ -156,6 +163,9 @@ class ScopedPlanTests(unittest.TestCase):
                         'seatrial compare --base HEAD --case greet-0012 --dry-run',
                         'seatrial run --changed HEAD --dry-run --json',
                         'seatrial compare --base HEAD --changed --dry-run --json',
+                        'seatrial compare --base HEAD --changed HEAD~1 --dry-run',
+                        'seatrial compare --base HEAD --changed main --dry-run',
+                        'seatrial compare --base HEAD --changed $(git rev-list --max-parents=0 HEAD) --dry-run',
                         'seatrial compare --base HEAD --changed HEAD --n 3 --json'):
             with self.subTest(command=command):
                 self.assertFalse(self.scoped(command))
@@ -171,7 +181,10 @@ class SizedPlanTests(unittest.TestCase):
 
     def test_a_plan_with_ten_or_more_trials_passes(self):
         for command in ('seatrial compare --base HEAD --n 10 --dry-run --json',
-                        'uvx seatrial compare --base HEAD --dry-run --n=12'):
+                        'uvx seatrial compare --base HEAD --dry-run --n=12',
+                        'seatrial compare --base HEAD --n "10" --dry-run',
+                        'seatrial compare --base HEAD --sequential --looks 5,10 --dry-run',
+                        'seatrial compare --base HEAD --sequential --looks=5,10,15 --n 15 --dry-run'):
             with self.subTest(command=command):
                 self.assertTrue(self.sized(command))
 
@@ -181,6 +194,8 @@ class SizedPlanTests(unittest.TestCase):
                         'seatrial compare --base HEAD --n $n --dry-run',
                         'seatrial compare --base HEAD --n 10 --json',
                         'seatrial compare --base HEAD --n 10 --n 3 --dry-run',
+                        'seatrial compare --base HEAD --looks 5,10 --dry-run',
+                        'seatrial compare --base HEAD --sequential --looks 5 --dry-run',
                         'seatrial run --n 10 --dry-run'):
             with self.subTest(command=command):
                 self.assertFalse(self.sized(command))

@@ -67,8 +67,9 @@ the user's reply.
 
 1. Print the plan with `--dry-run --json`: `seatrial compare --base HEAD
    --dry-run --json` for an uncommitted edit. Size `--n` to the claim (table
-   below) and scope it to the edited skill with `--changed HEAD`, `--skill`,
-   or `--case`. When the user has named no budget yet, show `count` and the caps
+   below) and scope it to the edited skill with `--changed` and the `--base`
+   revision (`--changed HEAD` for an uncommitted edit), `--skill`, or
+   `--case`. When the user has named no budget yet, show `count` and the caps
    you propose, ask for approval, and end your turn there. When the user named a
    budget, confirm that `count` fits it.
 2. Run with explicit caps: `--n`, `--max-runs`, `--max-minutes`, and

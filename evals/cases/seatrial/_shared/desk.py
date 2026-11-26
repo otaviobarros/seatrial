@@ -4,6 +4,10 @@ build() writes seatrial.toml with n = 3, one skill and one case per name, commit
 leaves an uncommitted edit to the greet skill that greet-001 measures, so no case is missing."""
 from seatrial.checks import commit_all, init_repo
 
+# Arguments that limit a plan to greet-001, the one case the uncommitted edit affects. --changed is
+# checked by the cli helper changed_since_base, since any older revision would also select farewell.
+GREET_SCOPES = (r'--skill(?:=|\s+)[\'"]?greet\b', r'--case(?:=|\s+)[\'"]?greet-001\b')
+
 CONFIG = '''[project]
 name = "hello-desk"
 

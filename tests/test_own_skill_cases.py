@@ -136,8 +136,9 @@ class ListCasesTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn('greet-002: new-case', note)
 
+
 class ScopedPlanTests(unittest.TestCase):
-    SCOPES = (r'--changed[=\s]\S+', r'--skill[=\s]+greet\b', r'--case[=\s]+greet-001\b')
+    SCOPES = (r'--changed(?:=|\s+)(?!-)\S+', r'--skill[=\s]+greet\b', r'--case[=\s]+greet-001\b')
 
     def scoped(self, *commands):
         return cli.scoped_plan(evidence(*commands), 'compare', self.SCOPES, ('farewell',))[0]
@@ -154,6 +155,7 @@ class ScopedPlanTests(unittest.TestCase):
                         'seatrial compare --base HEAD --skill greet --skill farewell --dry-run',
                         'seatrial compare --base HEAD --case greet-0012 --dry-run',
                         'seatrial run --changed HEAD --dry-run --json',
+                        'seatrial compare --base HEAD --changed --dry-run --json',
                         'seatrial compare --base HEAD --changed HEAD --n 3 --json'):
             with self.subTest(command=command):
                 self.assertFalse(self.scoped(command))
@@ -178,6 +180,7 @@ class SizedPlanTests(unittest.TestCase):
                         'seatrial compare --base HEAD --dry-run --json',
                         'seatrial compare --base HEAD --n $n --dry-run',
                         'seatrial compare --base HEAD --n 10 --json',
+                        'seatrial compare --base HEAD --n 10 --n 3 --dry-run',
                         'seatrial run --n 10 --dry-run'):
             with self.subTest(command=command):
                 self.assertFalse(self.sized(command))

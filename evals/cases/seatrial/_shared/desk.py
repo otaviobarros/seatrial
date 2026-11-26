@@ -38,7 +38,7 @@ CASE_PY = '''from seatrial.checks import commit_all, init_repo, report_matches
 
 def build(project):
     init_repo(project)
-    (project / 'notes.txt').write_text('Visitor log\\\\n')
+    (project / 'notes.txt').write_text('Visitor log\\n')
     commit_all(project, 'Initial project')
     return 'Hi, I am Ana. {request}'
 
@@ -67,5 +67,6 @@ def build(project, skills=('greet', 'farewell')):
         request, pattern = REQUESTS[name]
         (case / 'case.py').write_text(CASE_PY.format(request=request, pattern=pattern))
     commit_all(project, 'Add the skills and their cases')
-    (project / 'skills' / 'greet' / 'SKILL.md').write_text(
-        skill_text('greet') + 'Greet with exactly "Hello, NAME!" before anything else.\n')
+    if 'greet' in skills:
+        (project / 'skills' / 'greet' / 'SKILL.md').write_text(
+            skill_text('greet') + 'Greet with exactly "Hello, NAME!" before anything else.\n')

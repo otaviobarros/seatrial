@@ -9,7 +9,7 @@ from seatrial.checks import preserved, skill_loaded
 cli = SHARED['cli']
 desk = SHARED['desk']
 
-SCOPES = (r'--changed[=\s]\S+', r'--skill[=\s]+greet\b', r'--case[=\s]+greet-001\b')
+SCOPES = (r'--changed(?:=|\s+)(?!-)\S+', r'--skill[=\s]+greet\b', r'--case[=\s]+greet-001\b')
 
 
 def build(project):

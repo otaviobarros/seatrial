@@ -74,10 +74,12 @@ def scoped_plan(evidence, command, scopes, excluded):
 
 
 def sized_plan(evidence, command, minimum):
-    """A --dry-run plan for `command` with an explicit `--n` of at least `minimum`."""
-    plans = [s for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
-    sized = [s for s in plans if any(int(n) >= minimum for n in re.findall(r'--n[=\s]+(\d+)\b', s))]
-    return bool(sized), '; '.join(sized or plans)[:300] or f'no {command} --dry-run'
+    """A --dry-run plan for `command` whose effective `--n` is at least `minimum`."""
+    plans = [(s, args) for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
+    # argparse keeps the last --n, so a later smaller --n overrides an earlier large one.
+    sized = [s for s, args in plans
+             if (values := re.findall(r'--n(?:=|\s+)(\d+)\b', args)) and int(values[-1]) >= minimum]
+    return bool(sized), '; '.join(sized or [s for s, _ in plans])[:300] or f'no {command} --dry-run'
 
 
 def python_in_copy(project, *args, timeout):

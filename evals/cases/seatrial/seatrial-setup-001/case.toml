@@ -1,0 +1,10 @@
+id = "seatrial-setup-001"
+version = 1
+skill = "seatrial"
+suite = "capability"
+summary = "Sets up seatrial in a project with one skill, adds a case that loads, and makes no model calls."
+hosts = ["claude"]
+shared = ["../_shared/cli.py"]
+primary = "case-loads"
+# rate: compared as a pass rate. zero: any failure is a regression.
+assertions = { skill-loaded = "rate", configured = "rate", case-loads = "rate", no-native-run = "zero" }

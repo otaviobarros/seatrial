@@ -1,6 +1,6 @@
 import unittest
 
-from seatrial.checks import UNRECORDED, steps_at_most, tool_calls, tool_order, tool_used
+from seatrial.checks import UNRECORDED, preserved, steps_at_most, tool_calls, tool_order, tool_used
 from seatrial.ports import new_evidence
 
 
@@ -80,6 +80,18 @@ class StepsAtMostTests(unittest.TestCase):
         self.assertEqual(steps_at_most(TRACE, 4), (True, '4 tool calls'))
         self.assertEqual(steps_at_most(TRACE, 3), (False, '4 tool calls'))
         self.assertEqual(steps_at_most(evidence(), 0), (True, '0 tool calls'))
+
+
+class PreservedTests(unittest.TestCase):
+    def test_names_the_git_paths_that_changed(self):
+        found = new_evidence()
+        found.update(source_changes=[], git_changed=True, git_changes=['.git/refs/stash'], plugin_changed=False)
+        self.assertEqual(preserved(found), (False, 'Git metadata changed: .git/refs/stash'))
+
+    def test_evidence_without_the_list_still_reads(self):
+        found = new_evidence()
+        found.update(source_changes=['a.py'], git_changed=True, plugin_changed=False)
+        self.assertEqual(preserved(found), (False, 'Git metadata changed; a.py'))
 
 
 if __name__ == '__main__':

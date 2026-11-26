@@ -1,0 +1,28 @@
+# seatrial configuration. Paths are relative to this file.
+
+[project]
+name = "seatrial"
+
+[skills]
+# The folder under evaluation. Compare mounts it from Git revisions.
+path = "skills"
+# "plugin": a Claude Code plugin root with skills/. "skills": a folder of <name>/SKILL.md.
+layout = "skills"
+# Claude invokes skills as /<namespace>:<skill>.
+namespace = "seatrial"
+
+[cases]
+path = "evals/cases"
+hosts = ["claude"]
+# Folders added to sys.path for case.py imports, and files hashed into every case identity.
+python_path = []
+identity_files = []
+
+[run]
+n = 3
+jobs = 4
+timeout = 300
+
+[hosts]
+# The cheapest model; the workflow passes the same with --model.
+models = { claude = "claude-haiku-5-5" }

@@ -3,7 +3,9 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import os
 import random
+import subprocess
 import sys
 import concurrent.futures
 import tempfile
@@ -14,7 +16,9 @@ import unittest
 from unittest import mock
 
 from seatrial import cases, cli, hosts, report, runner
-from seatrial.ports import HostAdapter, new_evidence
+from seatrial.checks import commit_all, init_repo
+from seatrial.ports import HostAdapter, git_environment, new_evidence
+from seatrial.workspace import manifest
 from tests.support import ProjectCase
 from tests.test_cases import GOOD_TOML, write_case
 
@@ -243,6 +247,7 @@ class RunnerTests(FakeProject, unittest.TestCase):
             evidence = json.loads((trial / 'evidence.json').read_text())
             self.assertEqual(evidence['source_changes'], ['hello.txt'])
             self.assertFalse(evidence['git_changed'] or evidence['plugin_changed'])
+            self.assertEqual(evidence['git_changes'], [])
         self.assertEqual({r['revision']['name'] for r in records}, {'HEAD', 'WORKTREE'})
         summary = json.loads((work / 'summary.json').read_text())
         demo = summary['cases']['demo-001']['hosts']['fake']
@@ -893,6 +898,69 @@ class TrendTests(FakeProject, unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn('no trend history', out)
         self.assertEqual(self.trend(), [])
+
+
+class GitManifestTests(unittest.TestCase):
+    """Read-only Git commands rewrite the index; only staging should count as a Git change."""
+
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.project = Path(scratch.name) / 'p'
+        init_repo(self.project)
+        (self.project / 'a.txt').write_text('one\n')
+        commit_all(self.project, 'Initial')
+        # An uncommitted edit right after the commit, as a case build leaves it. The index is
+        # dated no later than its entry, so the entry is racily clean whatever the clock does,
+        # and the next `git status` rewrites the index.
+        recorded = (self.project / 'a.txt').stat().st_mtime_ns
+        os.utime(self.project / '.git' / 'index', ns=(recorded, recorded))
+        (self.project / 'a.txt').write_text('two\n')
+
+    def git(self, *args):
+        subprocess.run(['git', '-C', str(self.project), *args], check=True, capture_output=True,
+                       env=git_environment(os.environ))
+
+    def test_status_and_diff_leave_it_unchanged(self):
+        before = runner._git_manifest(self.project)
+        raw = manifest(self.project / '.git')
+        time.sleep(1.1)
+        self.git('status', '--short')
+        self.git('diff')
+        self.assertNotEqual(manifest(self.project / '.git'), raw, 'git status did not rewrite the index')
+        self.assertEqual(runner._git_manifest(self.project), before)
+
+    def test_empty_files_that_set_nothing_are_not_a_change(self):
+        # Claude Code's Linux sandbox creates these empty at start-up, in every trial.
+        before = runner._git_manifest(self.project)
+        worktree = self.project / '.git' / 'config.worktree'
+        alternates = self.project / '.git' / 'objects' / 'info' / 'alternates'
+        worktree.write_text('')
+        alternates.write_text('')
+        self.assertEqual(runner._git_manifest(self.project), before)
+        worktree.write_text('[core]\n\thooksPath = /tmp/hooks\n')
+        self.assertNotEqual(runner._git_manifest(self.project), before)
+        worktree.write_text('')
+        alternates.write_text('/tmp/objects\n')
+        self.assertNotEqual(runner._git_manifest(self.project), before)
+
+    def test_other_empty_files_still_count(self):
+        before = runner._git_manifest(self.project)
+        (self.project / '.git' / 'index.lock').write_text('')
+        self.assertNotEqual(runner._git_manifest(self.project), before)
+
+    def test_staging_changes_it(self):
+        before = runner._git_manifest(self.project)
+        self.git('add', 'a.txt')
+        self.assertNotEqual(runner._git_manifest(self.project), before)
+
+    def test_hiding_a_change_from_git_status_changes_it(self):
+        for flag in ('--assume-unchanged', '--skip-worktree'):
+            with self.subTest(flag=flag):
+                before = runner._git_manifest(self.project)
+                self.git('update-index', flag, 'a.txt')
+                self.assertNotEqual(runner._git_manifest(self.project), before)
+                self.git('update-index', flag.replace('--', '--no-', 1), 'a.txt')
 
 
 if __name__ == '__main__':

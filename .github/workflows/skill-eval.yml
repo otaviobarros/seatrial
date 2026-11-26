@@ -1,0 +1,41 @@
+name: Skill eval
+
+# Compares skills/seatrial on a pull request with the target branch, on the
+# cheapest model, and only when the skill, its cases, or this setup changed.
+# seatrial's own --changed selection skips the run (exit 5) for anything else.
+
+on:
+  pull_request:
+    paths:
+      - skills/**
+      - evals/**
+      - seatrial.toml
+      - .github/workflows/skill-eval.yml
+      - .github/workflows/seatrial.yml
+
+concurrency:
+  group: skill-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    name: Evaluate the seatrial skill
+    # Fork pull requests get no secrets, so native trials could not sign in.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/seatrial.yml
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      # The checkout's own seatrial, as the reusable workflow's dry-run job in ci.yml uses it.
+      seatrial-package: .
+      setup: npm install -g @anthropic-ai/claude-code
+      hosts: claude
+      models: claude=claude-haiku-5-5
+      # 10 trials per side to claim an improvement; --sequential stops a clear case after 5.
+      n: 10
+      max-cost-usd: "3"
+      max-minutes: 45
+      timeout-minutes: 60
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

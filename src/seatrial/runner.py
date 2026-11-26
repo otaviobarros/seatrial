@@ -17,7 +17,7 @@ import threading
 import time
 
 from seatrial import checks, config, report, stub_mcp
-from seatrial.ports import Trial, validate_evidence
+from seatrial.ports import Trial, git_environment, validate_evidence
 from seatrial.process import launch
 from seatrial.workspace import NONE, check_revision, delta, manifest, mount, new_run_directory, retained, skill_tree
 
@@ -74,6 +74,29 @@ def _source_manifest(project, installed):
         return found
     prefix = str(inside) + os.sep
     return {p: h for p, h in found.items() if not p.startswith(prefix)}
+
+
+EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
+# Git files that change nothing while empty. Claude Code's Linux sandbox creates them empty
+# at start-up, as mount points for its write protection, before the agent runs a command.
+NO_OP_WHEN_EMPTY = {'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates'}
+
+
+def _git_manifest(project):
+    """Hash Git metadata, with the index by its entries rather than its bytes.
+
+    `git status` and `git diff` rewrite the index to refresh file stat data, so its bytes
+    change on read-only commands. Its entries, with their assume-unchanged and skip-worktree
+    flags, change only when the agent stages or hides a change. Files in NO_OP_WHEN_EMPTY
+    count only once they hold something."""
+    git = project / '.git'
+    found = {p: h for p, h in manifest(git).items()
+             if p != 'index' and not (Path(p).as_posix() in NO_OP_WHEN_EMPTY and h == EMPTY_SHA256)}
+    if (git / 'index').exists():
+        staged = subprocess.run(['git', '-C', str(project), 'ls-files', '--stage', '-v'],
+                                capture_output=True, env=git_environment(os.environ))
+        found['index'] = hashlib.sha256(staged.stdout + staged.stderr).hexdigest()
+    return found
 
 
 def other_skills(case, host, trial, evidence):
@@ -144,7 +167,7 @@ def run_trial(job, context):
     installed = None
     try:
         installed = host.prepare(trial)
-        before = (_source_manifest(project, installed), manifest(project / '.git'),
+        before = (_source_manifest(project, installed), _git_manifest(project),
                   manifest(installed) if installed else {})
         project_base = _project_base(project)
         started = datetime.datetime.now(datetime.timezone.utc)
@@ -158,8 +181,9 @@ def run_trial(job, context):
         raise ValueError(f'{host.name} adapter returned invalid evidence: {problems}')
     evidence.update(project_base=project_base,
                     source_changes=delta(before[0], _source_manifest(project, installed)),
-                    git_changed=bool(delta(before[1], manifest(project / '.git'))),
+                    git_changes=['.git/' + p for p in delta(before[1], _git_manifest(project))],
                     plugin_changed=bool(installed and delta(before[2], manifest(installed))))
+    evidence['git_changed'] = bool(evidence['git_changes'])
     (directory / 'evidence.json').write_text(json.dumps(evidence) + '\n')
     stderr = trial.stderr.read_text(errors='replace')[-4000:] if trial.stderr.exists() else ''
     status = host.classify(process, evidence, stderr)

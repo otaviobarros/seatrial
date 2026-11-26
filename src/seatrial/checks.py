@@ -109,7 +109,8 @@ def preserved(evidence, allow=()):
     ok = not other and not evidence['git_changed'] and not evidence['plugin_changed']
     note = ', '.join(other)[:300]
     if evidence['git_changed']:
-        note = ('Git metadata changed; ' + note).strip('; ')
+        changed = ', '.join(evidence.get('git_changes') or [])
+        note = (f'Git metadata changed{": " + changed if changed else ""}; ' + note).strip('; ')[:300]
     if evidence['plugin_changed']:
         note = ('plugin changed; ' + note).strip('; ')
     return ok, note

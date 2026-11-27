@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/otaviobarros/seatrial/compare/v0.4.0...v0.5.0) (2026-11-27)
+
+
+### Features
+
+* keep results across runs and show them with seatrial trend ([#52](https://github.com/otaviobarros/seatrial/issues/52)) ([fe09b70](https://github.com/otaviobarros/seatrial/commit/fe09b706988de531e1013fc0d810fb6a4c22fb01))
+* measure each case's noise floor with an A/A run ([#51](https://github.com/otaviobarros/seatrial/issues/51)) ([e769070](https://github.com/otaviobarros/seatrial/commit/e7690707c6421ed7b96315f3ef87c3375fa74aa7))
+* pool a verdict per skill across its cases ([#53](https://github.com/otaviobarros/seatrial/issues/53)) ([c806ebe](https://github.com/otaviobarros/seatrial/commit/c806ebe6d6e88fd99d35882272215de40a43b7a6))
+
+
+### Bug Fixes
+
+* evaluate the seatrial skill in CI and stop counting harmless Git files as changes ([#58](https://github.com/otaviobarros/seatrial/issues/58)) ([1e8099d](https://github.com/otaviobarros/seatrial/commit/1e8099d8788cab9e8faf782c0500241b6a217d85))
+* **skill:** plan compare runs and ask for a budget before trials ([#59](https://github.com/otaviobarros/seatrial/issues/59)) ([46129a5](https://github.com/otaviobarros/seatrial/commit/46129a5ecc808ad4cc20edb136d998d3592ca89f))
+
+
+### Documentation
+
+* add the end-to-end workflow and close gaps after recent features ([#56](https://github.com/otaviobarros/seatrial/issues/56)) ([0da8ecb](https://github.com/otaviobarros/seatrial/commit/0da8ecb6f9d21d57ea580b91a208e318ac95b555))
+* keep the nightly base-ref example out of release-please version bumps ([#57](https://github.com/otaviobarros/seatrial/issues/57)) ([60ab9f3](https://github.com/otaviobarros/seatrial/commit/60ab9f3b4653c2824b01acf1a2f1bf92705922e5))
+
 ## [0.4.0](https://github.com/otaviobarros/seatrial/compare/v0.3.0...v0.4.0) (2026-11-25)
 
 

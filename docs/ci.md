@@ -154,12 +154,12 @@ on:
 jobs:
   pull-request:
     if: github.event_name == 'pull_request'
-    uses: otaviobarros/seatrial/.github/workflows/seatrial.yml@v0.4.0
+    uses: otaviobarros/seatrial/.github/workflows/seatrial.yml@v0.5.0
     permissions:
       contents: read
       pull-requests: write
     with:
-      seatrial-version: 0.4.0
+      seatrial-version: 0.5.0
       setup: npm install -g @anthropic-ai/claude-code
       hosts: claude
       models: claude=claude-haiku-5-5
@@ -170,11 +170,11 @@ jobs:
 
   nightly:
     if: github.event_name == 'schedule'
-    uses: otaviobarros/seatrial/.github/workflows/seatrial.yml@v0.4.0
+    uses: otaviobarros/seatrial/.github/workflows/seatrial.yml@v0.5.0
     permissions:
       contents: read
     with:
-      seatrial-version: 0.4.0
+      seatrial-version: 0.5.0
       setup: npm install -g @anthropic-ai/claude-code
       hosts: claude
       models: claude=claude-opus-5-5

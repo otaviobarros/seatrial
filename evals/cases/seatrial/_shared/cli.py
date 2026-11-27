@@ -59,10 +59,59 @@ def only_changed(evidence, allowed):
     return not other, ', '.join(other)[:300] or 'only ' + ', '.join(allowed)
 
 
+def dry_run_plans(evidence, command):
+    """(segment, arguments) for each `command` the agent ran with --dry-run."""
+    return [(s, args) for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
+
+
 def planned(evidence, command):
     """The agent printed a plan for `command` with --dry-run."""
-    plans = [s for s, args in seatrial_calls(evidence) if args.startswith(command) and '--dry-run' in args]
+    plans = [s for s, _ in dry_run_plans(evidence, command)]
     return bool(plans), '; '.join(plans)[:300] or f'no {command} --dry-run'
+
+
+def option(args, name):
+    """The last value of option `name` in `args`, without quotes, or None."""
+    values = re.findall(rf'{name}(?:=|\s+)([\'"]?)((?!-)[^\s\'"]+)\1(?=\s|$)', args)
+    return values[-1][1] if values else None
+
+
+def changed_since_base(args):
+    """--changed names HEAD or the --base revision, so it selects the uncommitted edit and nothing older."""
+    ref = option(args, '--changed')
+    return ref is not None and ref in {'HEAD', '@', option(args, '--base')}
+
+
+def scoped_plan(evidence, command, scopes, excluded):
+    """A --dry-run plan for `command` limited by one of `scopes` and naming none of `excluded`.
+
+    Each scope is a regex over the plan's arguments or a function that takes them."""
+    plans = dry_run_plans(evidence, command)
+    scoped = [s for s, args in plans
+              if any(scope(args) if callable(scope) else re.search(scope, args) for scope in scopes)
+              and not any(word in args for word in excluded)]
+    return bool(scoped), '; '.join(scoped or [s for s, _ in plans])[:300] or f'no {command} --dry-run'
+
+
+def trials(args):
+    """The trials per side a command line asks for, or None when it relies on the configured n.
+
+    argparse keeps the last --n, so a later smaller --n overrides an earlier large one. Without
+    --n, a --sequential run takes its maximum from the last of its --looks."""
+    values = re.findall(r'--n(?:=|\s+)[\'"]?(\d+)\b', args)
+    if values:
+        return int(values[-1])
+    looks = re.findall(r'--looks(?:=|\s+)[\'"]?([\d,]*\d)\b', args)
+    if looks and re.search(r'(^|\s)--sequential(\s|$)', args):
+        return int(looks[-1].split(',')[-1])
+    return None
+
+
+def sized_plan(evidence, command, minimum):
+    """A --dry-run plan for `command` whose effective trials per side are at least `minimum`."""
+    plans = dry_run_plans(evidence, command)
+    sized = [s for s, args in plans if (n := trials(args)) is not None and n >= minimum]
+    return bool(sized), '; '.join(sized or [s for s, _ in plans])[:300] or f'no {command} --dry-run'
 
 
 def python_in_copy(project, *args, timeout):
